@@ -21,7 +21,7 @@ import { ReportEventOptions, ReportEventParams } from '../types/content';
 import autoBind from '../utils/auto-bind';
 import { compareContentPriorities } from '../utils/content';
 import { initializeContentItems } from '../utils/content-utils';
-import { getMainCss, getWsUri } from '../utils/env';
+import { getMainCss, getWsPath, getWsUri } from '../utils/env';
 import { AppEvents } from '../utils/event';
 import { extensionIsRunning } from '../utils/extension';
 import { document, window } from '../utils/globals';
@@ -46,7 +46,7 @@ interface AppStartOptions {
 }
 
 export class App extends Evented {
-  socket = new Socket({ wsUri: getWsUri() });
+  socket = new Socket({ wsUri: getWsUri(), socketConfig: { path: getWsPath() } });
   activeTour: Tour | undefined;
   startOptions: AppStartOptions = {
     environmentId: '',
