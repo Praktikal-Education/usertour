@@ -9,7 +9,6 @@ import { ContentsModule } from '@/contents/contents.module';
 import { EnvironmentsModule } from '@/environments/environments.module';
 import { EventsModule } from '@/events/events.module';
 import { GqlConfigService } from '@/gql-config.service';
-import { PrismaService } from '@/prisma.service';
 import { ProjectsModule } from '@/projects/projects.module';
 import { ThemesModule } from '@/themes/themes.module';
 import { UsersModule } from '@/users/users.module';
@@ -29,6 +28,7 @@ import { StripeModule } from '@golevelup/nestjs-stripe';
 import { SubscriptionModule } from './subscription/subscription.module';
 import { LoggerModule } from 'nestjs-pino';
 import api from '@opentelemetry/api';
+import { DbMonitorModule } from './common/db-monitor/db-monitor.module';
 
 @Module({
   imports: [
@@ -62,7 +62,13 @@ import api from '@opentelemetry/api';
           env: process.env.NODE_ENV,
           uid: (req as any).user?.id || 'anonymous',
         }),
-        transport: process.env.NODE_ENV !== 'production' ? { target: 'pino-pretty' } : undefined,
+        transport: {
+          target: process.env.NODE_ENV !== 'production' ? 'pino-pretty' : 'pino/file',
+          options: {
+            destination: 1, // stdout
+            sync: false,
+          },
+        },
       },
     }),
     BullModule.forRootAsync({
@@ -111,8 +117,9 @@ import api from '@opentelemetry/api';
     LocalizationsModule,
     TeamModule,
     SubscriptionModule,
+    DbMonitorModule,
   ],
   controllers: [AppController],
-  providers: [AppService, AppResolver, PrismaService],
+  providers: [AppService, AppResolver],
 })
 export class AppModule {}
