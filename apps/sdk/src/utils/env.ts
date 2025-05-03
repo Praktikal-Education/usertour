@@ -5,32 +5,6 @@ const getWsUri = () => {
   return getUsertourEnvVars('WS_URI') || import.meta.env.VITE_WS_URI;
 };
 
-const getWsPath = () => {
-  const wsUri = getWsUri();
-  let basePath = '/';
-
-  if (wsUri) {
-    if (wsUri.includes('://')) {
-      try {
-        const url = new URL(wsUri);
-        basePath = url.pathname;
-      } catch (e) {
-        console.error('Invalid WS_URI format:', wsUri, e);
-      }
-    } else if (wsUri.startsWith('/')) {
-      basePath = wsUri;
-    } else {
-      basePath = `/${wsUri}`;
-    }
-  }
-
-  if (basePath !== '/' && !basePath.endsWith('/')) {
-    basePath = `${basePath}/`;
-  }
-
-  return `${basePath}socket.io`;
-};
-
 const getAssetsUri = () => {
   return getUsertourEnvVars('ASSETS_URI') || import.meta.env.VITE_ASSETS_URI;
 };
@@ -57,4 +31,4 @@ const getUsertourEnvVars = (key: string) => {
   return envVars[key];
 };
 
-export { getWsUri, getMainCss, getUserTourCss, getWsPath };
+export { getWsUri, getMainCss, getUserTourCss };
