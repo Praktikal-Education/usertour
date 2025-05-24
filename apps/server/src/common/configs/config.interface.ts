@@ -40,6 +40,8 @@ export interface Config {
   };
   app: {
     homepageUrl: string;
+    apiUrl: string;
+    docUrl: string;
   };
   aws: {
     s3: {
@@ -97,5 +99,6 @@ export interface Config {
   };
   globalConfig: {
     enabledBillingUsers: string[];
+    isSelfHostedMode: boolean;
   };
 }
