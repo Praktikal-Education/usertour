@@ -30,4 +30,6 @@ jobs:
           context: .
           file: ./Dockerfile
           push: true
-          tags: ghcr.io/praktikal-education/usertour:latest
+          tags: |
+            ghcr.io/praktikal-education/usertour:latest
+            ghcr.io/praktikal-education/usertour:${{ github.sha }}
