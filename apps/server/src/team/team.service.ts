@@ -136,7 +136,7 @@ export class TeamService {
     const transporter = createTransport({
       host: this.configService.get('email.host'),
       port: this.configService.get('email.port'),
-      secure: true,
+      secure: this.configService.get('email.port') === 465,
       auth: {
         user: this.configService.get('email.user'),
         pass: this.configService.get('email.pass'),
