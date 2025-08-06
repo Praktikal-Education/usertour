@@ -1,13 +1,28 @@
-import { useThemeDetailContext } from '@/contexts/theme-detail-context';
-import * as SharedPopper from '@usertour-ui/sdk';
-import { ContentEditorRoot, ContentEditorSerialize } from '@usertour-ui/shared-editor';
+import * as SharedPopper from '@usertour-packages/sdk';
+import { ContentEditorRoot, ContentEditorSerialize } from '@usertour-packages/shared-editor';
+import { ProgressBarPosition, ProgressBarType, ThemeTypesSetting } from '@usertour/types';
 
-export const ThemePreviewModal = (props: { contents: ContentEditorRoot[] }) => {
-  const { contents } = props;
-  const { settings, customStyle } = useThemeDetailContext();
+interface ThemePreviewModalProps {
+  contents: ContentEditorRoot[];
+  settings?: ThemeTypesSetting;
+  customStyle?: string;
+}
+
+export const ThemePreviewModal = (props: ThemePreviewModalProps) => {
+  const { contents, settings, customStyle } = props;
+
+  const progressType = settings?.progress.type;
+  const progressPosition = settings?.progress.position;
+  const progressEnabled = settings?.progress.enabled;
+  // Optimized progress display logic
+  const isFullWidthProgress = progressType === ProgressBarType.FULL_WIDTH;
+  const showTopProgress =
+    progressEnabled && (isFullWidthProgress || progressPosition === ProgressBarPosition.TOP);
+  const showBottomProgress =
+    progressEnabled && !isFullWidthProgress && progressPosition === ProgressBarPosition.BOTTOM;
 
   return (
-    <div className="h-full w-full" style={{ transform: 'scale(1)' }}>
+    <div className="h-full w-full scale-100">
       <SharedPopper.Popper open={true} zIndex={1111} globalStyle={customStyle}>
         <SharedPopper.PopperModalContentPotal
           position={'center'}
@@ -16,9 +31,24 @@ export const ThemePreviewModal = (props: { contents: ContentEditorRoot[] }) => {
         >
           <SharedPopper.PopperContent>
             <SharedPopper.PopperClose />
+            {showTopProgress && (
+              <SharedPopper.PopperProgress
+                type={progressType}
+                currentStepIndex={2}
+                position={progressPosition}
+                totalSteps={4}
+              />
+            )}
             <ContentEditorSerialize contents={contents} />
             <SharedPopper.PopperMadeWith />
-            <SharedPopper.PopperProgress width={60} />
+            {showBottomProgress && (
+              <SharedPopper.PopperProgress
+                type={progressType}
+                currentStepIndex={2}
+                totalSteps={4}
+                position={progressPosition}
+              />
+            )}
           </SharedPopper.PopperContent>
         </SharedPopper.PopperModalContentPotal>
       </SharedPopper.Popper>

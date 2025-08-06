@@ -1,11 +1,23 @@
 import { useAnalyticsContext } from '@/contexts/analytics-context';
-import { Card, CardContent, CardHeader, CardTitle } from '@usertour-ui/card';
+import { Card, CardContent, CardHeader, CardTitle } from '@usertour-packages/card';
 
-import { Table, TableBody, TableCell, TableHead, TableHeader, TableRow } from '@usertour-ui/table';
-import { AnalyticsViewsByStep } from '@usertour-ui/types';
+import {
+  Table,
+  TableBody,
+  TableCell,
+  TableHead,
+  TableHeader,
+  TableRow,
+} from '@usertour-packages/table';
+import { AnalyticsViewsByStep } from '@usertour/types';
+import { AnalyticsStepsSkeleton } from './analytics-skeleton';
 
 export const AnalyticsSteps = () => {
-  const { analyticsData } = useAnalyticsContext();
+  const { analyticsData, loading } = useAnalyticsContext();
+
+  if (loading) {
+    return <AnalyticsStepsSkeleton />;
+  }
 
   const computeRate = (step: AnalyticsViewsByStep, firstStep: AnalyticsViewsByStep) => {
     if (!step || !step.analytics || !firstStep.analytics.uniqueViews) {

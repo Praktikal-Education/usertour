@@ -1,17 +1,18 @@
-import * as SharedPopper from '@usertour-ui/sdk';
-import { ChecklistContainer, ChecklistDropdown } from '@usertour-ui/sdk';
-import { ChecklistProgress } from '@usertour-ui/sdk';
-import { ChecklistItems } from '@usertour-ui/sdk';
-import { ChecklistDismiss } from '@usertour-ui/sdk';
-import { PopperMadeWith } from '@usertour-ui/sdk';
-import { ChecklistStaticPopper } from '@usertour-ui/sdk';
-import { ChecklistRoot } from '@usertour-ui/sdk';
-import { LauncherContainer, LauncherView } from '@usertour-ui/sdk/src/launcher';
-import { LauncherRoot } from '@usertour-ui/sdk/src/launcher';
-import { ContentEditorSerialize } from '@usertour-ui/shared-editor';
-import { convertSettings, convertToCssVars } from '@usertour-ui/shared-utils';
-import { ChecklistData, ContentVersion, LauncherData, Step, Theme } from '@usertour-ui/types';
-import { cn } from '@usertour-ui/ui-utils';
+import { EyeNoneIcon } from '@usertour-packages/icons';
+import * as SharedPopper from '@usertour-packages/sdk';
+import { ChecklistContainer, ChecklistDropdown } from '@usertour-packages/sdk';
+import { ChecklistProgress } from '@usertour-packages/sdk';
+import { ChecklistItems } from '@usertour-packages/sdk';
+import { ChecklistDismiss } from '@usertour-packages/sdk';
+import { PopperMadeWith } from '@usertour-packages/sdk';
+import { ChecklistStaticPopper } from '@usertour-packages/sdk';
+import { ChecklistRoot } from '@usertour-packages/sdk';
+import { LauncherContainer, LauncherView } from '@usertour-packages/sdk/src/launcher';
+import { LauncherRoot } from '@usertour-packages/sdk/src/launcher';
+import { ContentEditorSerialize } from '@usertour-packages/shared-editor';
+import { convertSettings, convertToCssVars } from '@usertour/helpers';
+import { ChecklistData, ContentVersion, LauncherData, Step, Theme } from '@usertour/types';
+import { cn } from '@usertour/helpers';
 import { forwardRef, useEffect, useState } from 'react';
 import { useMeasure } from 'react-use';
 
@@ -80,6 +81,15 @@ interface FlowPreviewProps {
   currentStep: Step;
 }
 const FlowPreview = ({ currentTheme, currentStep }: FlowPreviewProps) => {
+  const isHidddenStep = currentStep.type === 'hidden';
+  if (isHidddenStep) {
+    return (
+      <div className="w-40 h-32 flex  flex-none items-center justify-center">
+        <EyeNoneIcon className="w-8 h-8" />
+      </div>
+    );
+  }
+
   return (
     <SharedPopper.Popper
       open={true}
@@ -108,9 +118,10 @@ const LauncherPreview = ({
   currentVersion: ContentVersion;
 }) => {
   const data = currentVersion.data as LauncherData;
+  const themeSettings = currentTheme.settings;
 
   return (
-    <LauncherRoot theme={currentTheme} data={data}>
+    <LauncherRoot themeSettings={themeSettings} data={data}>
       <LauncherContainer>
         <LauncherView
           type={data.type}
@@ -130,11 +141,12 @@ const ChecklistPreview = (props: {
 }) => {
   const { currentTheme, currentVersion } = props;
   const data = currentVersion.data as ChecklistData;
+  const themeSettings = currentTheme.settings;
 
   return (
-    <ChecklistRoot data={data} theme={currentTheme}>
+    <ChecklistRoot data={data} themeSettings={themeSettings} zIndex={10000}>
       <ChecklistContainer>
-        <ChecklistStaticPopper zIndex={1111}>
+        <ChecklistStaticPopper>
           <ChecklistDropdown />
           <ChecklistProgress width={45} />
           <ChecklistItems />

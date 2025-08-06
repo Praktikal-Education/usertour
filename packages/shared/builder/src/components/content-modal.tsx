@@ -1,6 +1,6 @@
 import { useLazyQuery } from '@apollo/client';
-import { EXTENSION_CONTENT_MODAL } from '@usertour-ui/constants';
-import { queryOembedInfo } from '@usertour-ui/gql';
+import { EXTENSION_CONTENT_MODAL } from '@usertour-packages/constants';
+import { queryOembedInfo } from '@usertour-packages/gql';
 import {
   Popper,
   PopperClose,
@@ -8,22 +8,24 @@ import {
   PopperMadeWith,
   PopperModalContentPotal,
   PopperProgress,
-} from '@usertour-ui/sdk';
+  useThemeStyles,
+} from '@usertour-packages/sdk';
 import {
   ContentEditor,
   ContentEditorElementType,
   ContentEditorRoot,
-} from '@usertour-ui/shared-editor';
-import { convertSettings, convertToCssVars, loadGoogleFontCss } from '@usertour-ui/shared-utils';
+} from '@usertour-packages/shared-editor';
+import { loadGoogleFontCss } from '../utils/loader';
 import {
   Attribute,
   Content,
   ContentOmbedInfo,
   ContentVersion,
+  ProgressBarPosition,
+  ProgressBarType,
   Step,
   Theme,
-  ThemeTypesSetting,
-} from '@usertour-ui/types';
+} from '@usertour/types';
 import { forwardRef, useEffect, useState } from 'react';
 import { useAws } from '../hooks/use-aws';
 
@@ -37,7 +39,12 @@ export interface ContentModalProps {
   onChange: (value: ContentEditorRoot[]) => void;
   contents: Content[];
   currentContent: Content | undefined;
-  createStep: (currentVersion: ContentVersion, sequence: number) => Promise<Step | undefined>;
+  createStep: (
+    currentVersion: ContentVersion,
+    sequence: number,
+    stepType?: string,
+    duplicateStep?: Step,
+  ) => Promise<Step | undefined>;
   projectId: string;
 }
 
@@ -55,18 +62,10 @@ export const ContentModal = forwardRef<HTMLDivElement, ContentModalProps>(
       createStep,
       projectId,
     } = props;
-    const [globalStyle, setGlobalStyle] = useState<string>('');
-    const [themeSetting, setThemeSetting] = useState<ThemeTypesSetting>();
     const [data, setData] = useState<any>(currentStep.data);
     const { upload } = useAws();
     const [queryOembed] = useLazyQuery(queryOembedInfo);
-
-    useEffect(() => {
-      if (theme) {
-        setThemeSetting(theme.settings);
-        setGlobalStyle(convertToCssVars(convertSettings(theme.settings)));
-      }
-    }, [theme]);
+    const { globalStyle, themeSetting } = useThemeStyles(theme as Theme);
 
     const handleEditorValueChange = (value: any) => {
       setData(value);
@@ -94,12 +93,17 @@ export const ContentModal = forwardRef<HTMLDivElement, ContentModalProps>(
 
     const totalSteps = currentVersion?.steps?.length ?? 0;
 
-    const progress = Math.min(
-      totalSteps > 0 ? Math.round(((currentIndex + 1) / totalSteps) * 100) : 0,
-      100,
-    );
-
+    const progressType = themeSetting?.progress.type;
+    const progressPosition = themeSetting?.progress.position;
+    const progressEnabled = themeSetting?.progress.enabled;
     const enabledElementTypes = Object.values(ContentEditorElementType);
+
+    // Optimized progress display logic
+    const isFullWidthProgress = progressType === ProgressBarType.FULL_WIDTH;
+    const showTopProgress =
+      progressEnabled && (isFullWidthProgress || progressPosition === ProgressBarPosition.TOP);
+    const showBottomProgress =
+      progressEnabled && !isFullWidthProgress && progressPosition === ProgressBarPosition.BOTTOM;
 
     return (
       <>
@@ -114,6 +118,15 @@ export const ContentModal = forwardRef<HTMLDivElement, ContentModalProps>(
           >
             <PopperContent>
               {currentStep.setting.skippable && <PopperClose />}
+              {showTopProgress && (
+                <PopperProgress
+                  width={60}
+                  type={progressType}
+                  currentStepIndex={currentIndex}
+                  position={progressPosition}
+                  totalSteps={totalSteps}
+                />
+              )}
               <ContentEditor
                 zIndex={zIndex + EXTENSION_CONTENT_MODAL}
                 enabledElementTypes={enabledElementTypes}
@@ -129,7 +142,15 @@ export const ContentModal = forwardRef<HTMLDivElement, ContentModalProps>(
                 createStep={createStep}
               />
               <PopperMadeWith />
-              <PopperProgress width={progress} />
+              {showBottomProgress && (
+                <PopperProgress
+                  width={60}
+                  type={progressType}
+                  currentStepIndex={currentIndex}
+                  position={progressPosition}
+                  totalSteps={totalSteps}
+                />
+              )}
             </PopperContent>
           </PopperModalContentPotal>
         </Popper>

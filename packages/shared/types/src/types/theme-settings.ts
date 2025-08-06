@@ -1,5 +1,19 @@
 import { ContentModalPlacementData, ModalPosition } from './contents';
 
+export enum ProgressBarType {
+  FULL_WIDTH = 'full-width',
+  NARROW = 'narrow',
+  CHAIN_ROUNDED = 'chain-rounded',
+  CHAIN_SQUARED = 'chain-squared',
+  DOTS = 'dots',
+  NUMBERED = 'numbered',
+}
+
+export enum ProgressBarPosition {
+  TOP = 'top',
+  BOTTOM = 'bottom',
+}
+
 export type ThemeTypesSettingsColor = {
   background: string;
   color: string;
@@ -41,8 +55,16 @@ export type ThemeTypesSetting = {
     color: string;
   };
   progress: {
+    enabled: boolean;
     color: string;
     height: number;
+    type: ProgressBarType;
+    position: ProgressBarPosition;
+    narrowHeight: number;
+    chainSquaredHeight: number;
+    chainRoundedHeight: number;
+    dotsHeight: number;
+    numberedHeight: number;
   };
   survey: {
     color: string;
@@ -60,7 +82,8 @@ export type ThemeTypesSetting = {
     checkmarkColor: string;
     width: number;
     placement: ContentModalPlacementData;
-    zIndex: number;
+    zIndex?: number;
+    completedTaskTextDecoration?: string;
   };
   checklistLauncher: {
     borderRadius: number;
@@ -139,8 +162,16 @@ export const defaultSettings: ThemeTypesSetting = {
     color: '#f5a623',
   },
   progress: {
+    enabled: true,
     color: '#f5a623',
     height: 2,
+    type: ProgressBarType.FULL_WIDTH,
+    position: ProgressBarPosition.TOP,
+    narrowHeight: 5,
+    chainSquaredHeight: 4,
+    chainRoundedHeight: 6,
+    dotsHeight: 10,
+    numberedHeight: 12,
   },
   survey: {
     color: '#1d4ed8',
@@ -167,7 +198,6 @@ export const defaultSettings: ThemeTypesSetting = {
       positionOffsetX: 100,
       positionOffsetY: 20,
     },
-    zIndex: 1000,
   },
   checklistLauncher: {
     borderRadius: 24,

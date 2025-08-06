@@ -1,5 +1,5 @@
-import { EXTENSION_CONTENT_POPPER } from '@usertour-ui/constants';
-import { useThemeListContext } from '@usertour-ui/contexts';
+import { EXTENSION_CONTENT_POPPER } from '@usertour-packages/constants';
+import { useThemeListContext } from '@usertour-packages/contexts';
 import {
   ChecklistContainer,
   ChecklistDismiss,
@@ -11,9 +11,9 @@ import {
   ChecklistProgress,
   ChecklistRoot,
   PopperMadeWith,
-} from '@usertour-ui/sdk';
-import { ContentEditor, ContentEditorRoot } from '@usertour-ui/shared-editor';
-import { ChecklistInitialDisplay, Theme } from '@usertour-ui/types';
+} from '@usertour-packages/sdk';
+import { ContentEditor, ContentEditorRoot } from '@usertour-packages/shared-editor';
+import { ChecklistInitialDisplay, Theme } from '@usertour/types';
 import { isEqual } from 'lodash';
 import { useCallback, useEffect, useState } from 'react';
 import { useBuilderContext, useChecklistContext } from '../../../contexts';
@@ -25,6 +25,13 @@ export const ChecklistEmbed = () => {
   const [theme, setTheme] = useState<Theme | undefined>();
   const { themeList } = useThemeListContext();
   const { currentVersion, projectId } = useBuilderContext();
+  const [expanded, setExpanded] = useState(
+    localData?.initialDisplay === ChecklistInitialDisplay.EXPANDED,
+  );
+
+  useEffect(() => {
+    setExpanded(localData?.initialDisplay === ChecklistInitialDisplay.EXPANDED);
+  }, [localData?.initialDisplay]);
 
   useEffect(() => {
     if (!themeList) {
@@ -62,18 +69,21 @@ export const ChecklistEmbed = () => {
   }
 
   const items = localData.items.map((item) => {
-    return item.id === currentItem?.id ? currentItem : item;
+    const newItem = item.id === currentItem?.id ? currentItem : item;
+    return { ...newItem, isVisible: true };
   });
 
   return (
     <>
       <ChecklistRoot
         data={{ ...localData, items }}
-        theme={theme}
-        defaultOpen={localData.initialDisplay === ChecklistInitialDisplay.EXPANDED}
+        themeSettings={theme.settings}
+        expanded={expanded}
+        onExpandedChange={setExpanded}
+        zIndex={10000}
       >
         <ChecklistContainer>
-          <ChecklistPopper zIndex={1111}>
+          <ChecklistPopper zIndex={10000}>
             <ChecklistPopperContent>
               <ChecklistDropdown />
               <ChecklistPopperContentBody>

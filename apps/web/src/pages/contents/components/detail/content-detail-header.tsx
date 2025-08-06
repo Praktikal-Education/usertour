@@ -3,15 +3,18 @@ import { useContentDetailContext } from '@/contexts/content-detail-context';
 import { useContentVersionContext } from '@/contexts/content-version-context';
 import { useContentBuilder } from '@/hooks/useContentBuilder';
 import { ArrowLeftIcon, DotsHorizontalIcon, EnterIcon } from '@radix-ui/react-icons';
-import { Button } from '@usertour-ui/button';
-import { EditIcon, PlaneIcon, SpinnerIcon } from '@usertour-ui/icons';
-import { cn } from '@usertour-ui/ui-utils';
+import { Button } from '@usertour-packages/button';
+import { EditIcon, PlaneIcon, SpinnerIcon } from '@usertour-packages/icons';
+import { cn } from '@usertour/helpers';
 import { formatDistanceToNow } from 'date-fns';
 import { useState } from 'react';
 import { Link, useLocation, useNavigate, useParams, useSearchParams } from 'react-router-dom';
 import { ContentEditDropdownMenu } from '../shared/content-edit-dropmenu';
 import { ContentPublishForm } from '../shared/content-publish-form';
 import { ContentRenameForm } from '../shared/content-rename-form';
+import { useEnvironmentListContext } from '@/contexts/environment-list-context';
+import { isPublishedInAllEnvironments } from '@usertour/helpers';
+import { ContentDetailHeaderSkeleton } from './content-detail-header-skeleton';
 
 const navigations = [
   {
@@ -62,16 +65,22 @@ function MainNav({ className, ...props }: React.HTMLAttributes<HTMLElement>) {
 
 export const ContentDetailHeader = () => {
   const navigator = useNavigate();
-  const { content, refetch, contentType } = useContentDetailContext();
+  const { content, refetch, contentType, loading } = useContentDetailContext();
   const [openPublish, setOpenPublish] = useState(false);
   const { version, isSaveing } = useContentVersionContext();
   const { environment, isViewOnly } = useAppContext();
   const { openBuilder } = useContentBuilder();
+  const { environmentList } = useEnvironmentListContext();
   const [_, setSearchParams] = useSearchParams();
+
+  // Show skeleton if content is loading
+  if (loading) {
+    return <ContentDetailHeaderSkeleton />;
+  }
+
   if (!contentType || !content) return null;
 
-  const isDisabled =
-    (content.published && content.editedVersionId === content.publishedVersionId) || false;
+  const isDisabled = isPublishedInAllEnvironments(content, environmentList, version);
 
   const handleBack = () => {
     navigator(`/env/${environment?.id}/${contentType}`);
@@ -135,8 +144,12 @@ export const ContentDetailHeader = () => {
                 <ContentEditDropdownMenu
                   content={content}
                   disabled={isViewOnly}
-                  onSubmit={() => {
-                    refetch();
+                  onSubmit={(action: string) => {
+                    if (action === 'delete') {
+                      navigator(`/env/${environment?.id}/${contentType}`);
+                    } else {
+                      refetch();
+                    }
                   }}
                 >
                   <Button variant="secondary">

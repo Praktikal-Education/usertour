@@ -4,13 +4,15 @@ import {
   DropdownMenuItem,
   DropdownMenuSeparator,
   DropdownMenuTrigger,
-} from '@usertour-ui/dropdown-menu';
-import { CopyIcon, Delete2Icon, UnPublishIcon } from '@usertour-ui/icons';
-import { Content } from '@usertour-ui/types';
+} from '@usertour-packages/dropdown-menu';
+import { CopyIcon, Delete2Icon, UnPublishIcon } from '@usertour-packages/icons';
+import { Content } from '@usertour/types';
 import { ReactNode, useState } from 'react';
 import { ContentDeleteForm } from './content-delete-form';
 import { ContentDuplicateForm } from './content-duplicate-form';
 import { ContentUnpublishForm } from './content-unpublish-form';
+import { isPublishedAtLeastOneEnvironment } from '@usertour/helpers';
+
 type ContentEditDropdownMenuProps = {
   content: Content;
   children: ReactNode;
@@ -22,6 +24,8 @@ export const ContentEditDropdownMenu = (props: ContentEditDropdownMenuProps) => 
   const [openDelete, setOpenDelete] = useState(false);
   const [openDuplicate, setOpenDuplicate] = useState(false);
   const [openUnpublish, setOpenUnpublish] = useState(false);
+
+  const isPublished = isPublishedAtLeastOneEnvironment(content);
 
   const handleOnClick = () => {
     setOpenDelete(true);
@@ -50,7 +54,7 @@ export const ContentEditDropdownMenu = (props: ContentEditDropdownMenuProps) => 
           <DropdownMenuItem
             onClick={handleUnpublishOpen}
             className="cursor-pointer"
-            disabled={!content.published || disabled}
+            disabled={!isPublished || disabled}
           >
             <UnPublishIcon className="mr-1" width={14} height={14} />
             Unpublish
@@ -67,7 +71,7 @@ export const ContentEditDropdownMenu = (props: ContentEditDropdownMenuProps) => 
           <DropdownMenuItem
             className="text-red-600 cursor-pointer"
             onClick={handleOnClick}
-            disabled={content.published || disabled}
+            disabled={isPublishedAtLeastOneEnvironment(content) || disabled}
           >
             <Delete2Icon className="mr-1" />
             Delete {content.type}
@@ -79,7 +83,7 @@ export const ContentEditDropdownMenu = (props: ContentEditDropdownMenuProps) => 
         open={openDuplicate}
         onOpenChange={setOpenDuplicate}
         onSuccess={handleDuplicateSuccess}
-        name="flow"
+        name={content.type}
       />
       <ContentDeleteForm
         name="flow"

@@ -1,35 +1,26 @@
-import { CSSProperties, forwardRef, useEffect, useRef, useState } from 'react';
-// import { PopperContent } from "./PopperContent";
-import { AssetAttributes, Frame, useFrame } from '@usertour-ui/frame';
-import { createContext } from '@usertour-ui/react-context';
-import * as ArrowPrimitive from '@usertour-ui/react-arrow';
-import { useSize } from '@usertour-ui/react-use-size';
-import { CloseIcon, UsertourIcon } from '@usertour-ui/icons';
-import { useComposedRefs } from '@usertour-ui/react-compose-refs';
-import {
-  computePosition,
-  detectOverflow,
-  autoUpdate,
-  platform,
-  ReferenceElement,
-} from '@floating-ui/dom';
-import {
-  useFloating,
-  offset,
-  shift,
-  limitShift,
-  hide,
-  arrow as floatingUIarrow,
-  flip,
-  size,
-} from '@floating-ui/react-dom';
-import type { SideObject, Rect, Placement, Middleware } from '@floating-ui/dom';
-import { positionModal, getReClippingRect, getViewportRect } from './backdrop';
-import { computePositionStyle } from './position';
-import { cn } from '@usertour-ui/ui-utils';
-import { Align, Side } from '@usertour-ui/types';
+import { CSSProperties, forwardRef, useEffect, useRef, useState, useCallback } from 'react';
+import * as ArrowPrimitive from '@usertour-packages/react-arrow';
+import { AssetAttributes, Frame, useFrame } from '@usertour-packages/frame';
+import { createContext } from '@usertour-packages/react-context';
+import { useSize } from '@usertour-packages/react-use-size';
+import { CloseIcon, UsertourIcon } from '@usertour-packages/icons';
+import { useComposedRefs } from '@usertour-packages/react-compose-refs';
+import type { SideObject, Rect } from '@floating-ui/dom';
+import { positionModal, getReClippingRect, getViewportRect } from './utils/backdrop';
+import { computePositionStyle } from './utils/position';
+import { cn } from '@usertour/helpers';
+import { Align, ProgressBarType, Side } from '@usertour/types';
+import { hiddenStyle } from './utils/content';
+import { usePopperContent } from './hooks/use-popper-content';
 
 const POPPER_NAME = 'Popover';
+
+const OPPOSITE_SIDE: Record<Side, Side> = {
+  top: 'bottom',
+  right: 'left',
+  bottom: 'top',
+  left: 'right',
+};
 
 type Boundary = Element | null;
 
@@ -75,6 +66,8 @@ type PopperProps = {
   zIndex: number;
   assets?: AssetAttributes[];
   globalStyle?: string;
+  // Whether to use iframe mode, default false
+  isIframeMode?: boolean;
 };
 
 type PopperContextProps = {
@@ -85,34 +78,58 @@ type PopperContextProps = {
   globalStyle?: string;
   triggerRef?: React.RefObject<any>;
   viewportRef?: React.RefObject<any>;
+  referenceHidden?: boolean;
+  setReferenceHidden?: (hidden: boolean) => void;
+  rect?: Rect;
+  setRect?: (rect: Rect | undefined) => void;
+  overflow?: SideObject;
+  setOverflow?: (overflow: SideObject | undefined) => void;
+  // Iframe related states
+  isIframeMode?: boolean;
+  isIframeLoaded?: boolean;
+  setIsIframeLoaded?: (loaded: boolean) => void;
+  shouldShow?: boolean;
 };
-
-function isNotNull<T>(value: T | null): value is T {
-  return value !== null;
-}
 
 const [PopperProvider, usePopperContext] = createContext<PopperContextProps>(POPPER_NAME);
 
 const Popper = forwardRef<HTMLDivElement, PopperProps>((props, _) => {
-  const { triggerRef, open = false, children, zIndex, assets, globalStyle } = props;
+  const {
+    triggerRef,
+    open = false,
+    children,
+    zIndex,
+    assets,
+    globalStyle,
+    isIframeMode = false,
+    onOpenChange,
+  } = props;
+  const [referenceHidden, setReferenceHidden] = useState(false);
+  const [rect, setRect] = useState<Rect>();
+  const [overflow, setOverflow] = useState<SideObject>();
+  const [isIframeLoaded, setIsIframeLoaded] = useState(false);
 
-  //todo optimzed
-  const [, setOpenState] = useState(open);
-  const handleOpenChange = (isOpen: boolean) => {
-    setOpenState(isOpen);
-  };
-  useEffect(() => {
-    setOpenState(open);
-  }, [open]);
+  // Show condition: direct display for non-iframe mode, wait for loading in iframe mode
+  const shouldShow = open && (isIframeMode ? isIframeLoaded : true);
 
   return (
     <>
       <PopperProvider
-        onOpenChange={handleOpenChange}
+        onOpenChange={onOpenChange}
         triggerRef={triggerRef}
         zIndex={zIndex}
         assets={assets}
         globalStyle={globalStyle}
+        referenceHidden={referenceHidden}
+        setReferenceHidden={setReferenceHidden}
+        rect={rect}
+        setRect={setRect}
+        overflow={overflow}
+        setOverflow={setOverflow}
+        isIframeMode={isIframeMode}
+        isIframeLoaded={isIframeLoaded}
+        setIsIframeLoaded={setIsIframeLoaded}
+        shouldShow={shouldShow}
       >
         {open && <PopperContainer>{children}</PopperContainer>}
       </PopperProvider>
@@ -123,26 +140,39 @@ const Popper = forwardRef<HTMLDivElement, PopperProps>((props, _) => {
 const PopperContainer = forwardRef<HTMLDivElement, PopperContentProps>(({ children }, ref) => {
   const containerRef = useRef<HTMLDivElement>(null);
   const composedRefs = useComposedRefs(ref, containerRef);
-  const { globalStyle } = usePopperContext(POPPER_NAME);
+  const { globalStyle, isIframeMode, shouldShow } = usePopperContext(POPPER_NAME);
+
   useEffect(() => {
     if (containerRef.current && globalStyle) {
-      containerRef.current.style.cssText = globalStyle;
+      let finalStyle = globalStyle;
+
+      // Only add loading state styles in iframe mode
+      if (isIframeMode) {
+        const loadingStyle = `opacity: ${shouldShow ? 1 : 0}; visibility: ${shouldShow ? 'visible' : 'hidden'};`;
+        finalStyle = `${globalStyle}; ${loadingStyle}`;
+      }
+
+      containerRef.current.style.cssText = finalStyle;
     }
-  }, [containerRef.current, globalStyle]);
+  }, [containerRef.current, globalStyle, isIframeMode, shouldShow]);
+
   return (
-    <>
-      <div className="usertour-widget-chrome usertour-widget-root" ref={composedRefs}>
-        {children}
-      </div>
-    </>
+    <div className="usertour-widget-chrome usertour-widget-root" ref={composedRefs}>
+      {children}
+    </div>
   );
 });
 
 const PopperContentFrame = forwardRef<HTMLDivElement, PopperContentProps>(({ children }, _) => {
-  const { onOpenChange, assets, globalStyle } = usePopperContext(POPPER_NAME);
+  const { onOpenChange, assets, globalStyle, setIsIframeLoaded } = usePopperContext(POPPER_NAME);
+
+  const handleFrameLoad = useCallback(() => {
+    setIsIframeLoaded?.(true);
+  }, [setIsIframeLoaded]);
+
   return (
     <>
-      <Frame assets={assets} className="usertour-widget-popper__frame">
+      <Frame assets={assets} className="usertour-widget-popper__frame" onLoad={handleFrameLoad}>
         <PopperContentInFrame onOpenChange={onOpenChange} globalStyle={globalStyle}>
           {children}
         </PopperContentInFrame>
@@ -153,70 +183,33 @@ const PopperContentFrame = forwardRef<HTMLDivElement, PopperContentProps>(({ chi
 
 type PopperOverlayProps = { blockTarget?: boolean; viewportRect?: Rect };
 const PopperOverlay = forwardRef<HTMLDivElement, PopperOverlayProps>((props, _) => {
-  const context = usePopperContext(POPPER_NAME);
+  const { triggerRef, zIndex, referenceHidden, rect, overflow } = usePopperContext(POPPER_NAME);
   const { blockTarget = false, viewportRect } = props;
   const [backdrop, setBackdrop] = useState<BackdropRect | null>(null);
   const backdropRef = useRef<HTMLDivElement>(null);
-  const [overflow, setOverflow] = useState<SideObject>();
-  const [rect, setRect] = useState<Rect>();
-  const updatePosition = () => {
-    const referenceEl = context.triggerRef?.current as ReferenceElement;
-    const floatingEl = backdropRef.current as HTMLElement;
-    computePosition(referenceEl, floatingEl, {
-      strategy: 'fixed',
-      platform: {
-        ...platform,
-        convertOffsetParentRelativeRectToViewportRelativeRect(...args) {
-          const rect = platform.convertOffsetParentRelativeRectToViewportRelativeRect(
-            ...args,
-          ) as Rect;
-          setRect(rect);
-          return rect;
-        },
-      },
-      middleware: [
-        {
-          name: 'middleware',
-          async fn(state) {
-            const overf = await detectOverflow(state, {
-              elementContext: 'reference',
-            });
-            setOverflow(overf);
-            return {};
-          },
-        },
-      ],
-    });
-  };
-  useEffect(() => {
-    const referenceEl = context.triggerRef?.current as Element;
-    if (rect && context.triggerRef && overflow) {
-      const clippingRect = getReClippingRect(rect, overflow);
-      const viewRect = viewportRect ? viewportRect : getViewportRect();
-      const b = positionModal(referenceEl, clippingRect, context.zIndex, viewRect, 0);
-      setBackdrop(b);
-    }
-  }, [overflow, rect, viewportRect]);
 
   useEffect(() => {
-    const referenceEl = context.triggerRef?.current as ReferenceElement;
-    const floatingEl = backdropRef.current as HTMLElement;
-    if (referenceEl && floatingEl) {
-      const cleanup = autoUpdate(referenceEl, floatingEl, updatePosition, {
-        animationFrame: true,
-      });
-      return cleanup;
+    const referenceEl = triggerRef?.current as Element;
+    if (rect && triggerRef && overflow) {
+      const clippingRect = getReClippingRect(rect, overflow);
+      const viewRect = viewportRect ? viewportRect : getViewportRect();
+      const b = positionModal(referenceEl, clippingRect, zIndex, viewRect, 0);
+      setBackdrop(b);
     }
-  }, [backdropRef, context.triggerRef]);
+  }, [overflow, rect, viewportRect, triggerRef, zIndex]);
+
+  const backdropStyle = {
+    ...backdrop?.box,
+    ...(referenceHidden
+      ? hiddenStyle
+      : { opacity: 1, pointerEvents: blockTarget ? undefined : ('none' as const) }),
+  };
 
   return (
     <>
       <div
         className="usertour-widget-popper-backdrop usertour-widget-popper-backdrop--visible"
-        style={{
-          ...backdrop?.box,
-          pointerEvents: blockTarget ? undefined : 'none',
-        }}
+        style={backdropStyle}
         ref={backdropRef}
       />
       <div
@@ -239,160 +232,51 @@ const PopperOverlay = forwardRef<HTMLDivElement, PopperOverlayProps>((props, _) 
   );
 });
 
-const OPPOSITE_SIDE: Record<Side, Side> = {
-  top: 'bottom',
-  right: 'left',
-  bottom: 'top',
-  left: 'right',
-};
-
 const PopperContentPotal = forwardRef<HTMLDivElement, PopperContentProps>((props, forwardedRef) => {
   const {
     children,
-    side = 'bottom',
-    sideOffset = 0,
-    align = 'center',
-    alignOffset = 0,
-    arrowPadding = 0,
-    avoidCollisions = true,
-    collisionBoundary = [],
     arrowSize = { width: 20, height: 10 },
-    collisionPadding: collisionPaddingProp = 0,
-    sticky = 'partial',
     arrowColor = 'white',
-    hideWhenDetached = false,
     dir = 'ltr',
-    width = 'auto',
-    updatePositionStrategy = 'optimized',
   } = props;
-  const { triggerRef, zIndex } = usePopperContext(POPPER_NAME);
-  const arrowRef = useRef(null);
-  const referenceEl = triggerRef?.current as ReferenceElement;
-  const arrowRectSize = useSize(arrowRef.current);
-  const arrowWidth = arrowRectSize?.width ?? 0;
-  const arrowHeight = arrowRectSize?.height ?? 0;
-  // const arrowWidth = 40;
-  // const arrowHeight = 40;
-  const desiredPlacement = `${side}${align !== 'center' ? `-${align}` : ''}` as Placement;
-  const collisionPadding =
-    typeof collisionPaddingProp === 'number'
-      ? collisionPaddingProp
-      : { top: 0, right: 0, bottom: 0, left: 0, ...collisionPaddingProp };
 
-  const boundary = Array.isArray(collisionBoundary) ? collisionBoundary : [collisionBoundary];
-  const hasExplicitBoundaries = boundary.length > 0;
+  const { shouldShow, triggerRef, zIndex, setReferenceHidden, setRect, setOverflow } =
+    usePopperContext(POPPER_NAME);
 
-  const detectOverflowOptions = {
-    padding: collisionPadding,
-    boundary: boundary.filter(isNotNull),
-    // with `strategy: 'fixed'`, this is the only way to get it to respect boundaries
-    altBoundary: hasExplicitBoundaries,
-  };
-
-  // const referenceIsVisible = {
-  //   name: "referenceIsVisible",
-  //   fn({ elements }: MiddlewareState) {
-  //     const isVisible = isVisibleNode(elements.reference);
-  //     return {
-  //       data: {
-  //         isVisible,
-  //       },
-  //     };
-  //   },
-  // };
-
-  const { refs, floatingStyles, placement, isPositioned, middlewareData } = useFloating({
-    // default to `fixed` strategy so users don't have to pick and we also avoid focus scroll issues
-    strategy: 'fixed',
-    placement: desiredPlacement,
-    whileElementsMounted: (...args) => {
-      const cleanup = autoUpdate(...args, {
-        animationFrame: updatePositionStrategy === 'always',
-      });
-      return cleanup;
+  const popperData = usePopperContent(
+    props,
+    {
+      triggerRef: triggerRef!,
+      zIndex,
+      setReferenceHidden: setReferenceHidden!,
+      setRect: setRect!,
+      setOverflow: setOverflow!,
     },
-    elements: {
-      reference: referenceEl,
-    },
-    middleware: [
-      offset({
-        mainAxis: sideOffset + arrowHeight,
-        alignmentAxis: alignOffset,
-      }),
-      avoidCollisions &&
-        shift({
-          mainAxis: true,
-          crossAxis: false,
-          limiter: sticky === 'partial' ? limitShift() : undefined,
-          ...detectOverflowOptions,
-        }),
-      avoidCollisions && flip({ ...detectOverflowOptions }),
-      size({
-        ...detectOverflowOptions,
-        // apply: ({ elements, rects, availableWidth, availableHeight }) => {
-        //   // const { width: anchorWidth, height: anchorHeight } = rects.reference;
-        //   // const contentStyle = elements.floating.style;
-        // },
-      }),
-      arrowRef && floatingUIarrow({ element: arrowRef, padding: arrowPadding }),
-      transformOrigin({ arrowWidth, arrowHeight }),
-      hideWhenDetached && hide({ strategy: 'referenceHidden', ...detectOverflowOptions }),
-    ],
-  });
-
-  const [placedSide] = getSideAndAlignFromPlacement(placement);
-
-  const arrowX = middlewareData.arrow?.x;
-  const arrowY = middlewareData.arrow?.y;
-  // const cannotCenterArrow = middlewareData.arrow?.centerOffset !== 0;
-  const cannotCenterArrow = false;
-  const baseSide = OPPOSITE_SIDE[placedSide];
-  const popperRef = useRef<HTMLDivElement | null>(null);
-  const composedRefs = useComposedRefs(forwardedRef, popperRef, (node: any) =>
-    refs.setFloating(node),
+    shouldShow,
   );
 
-  useEffect(() => {
-    if (!popperRef.current) {
-      return;
-    }
-    const el = popperRef.current;
-    if (isPositioned) {
-      el.style.transition = 'opacity 250ms linear';
-      const t = setTimeout(() => {
-        el.style.opacity = '1';
-        el.style.transition =
-          'opacity 250ms linear, transform 500ms cubic-bezier(0.25, 0.8, 0.5, 1)';
-      }, 100);
-      return () => {
-        clearTimeout(t);
-      };
-    }
-  }, [isPositioned, popperRef]);
+  const {
+    arrowRef,
+    composedRefs,
+    inlineStyle,
+    placedSide,
+    arrowX,
+    arrowY,
+    baseSide,
+    middlewareData,
+  } = popperData;
+
+  // Combine refs
+  const finalComposedRefs = useComposedRefs(forwardedRef, composedRefs);
 
   return (
     <>
       <div
         className="usertour-widget-popper usertour-centered usertour-enabled"
-        ref={composedRefs}
+        ref={finalComposedRefs}
         data-usertour-popper-content-wrapper=""
         data-usertour-popper-data-placement={placedSide}
-        style={{
-          // opacity: "0",
-          ...floatingStyles,
-          width: width,
-          zIndex: zIndex + 1,
-          // opacity: isShow ? 1 : 0,
-          transform: isPositioned ? floatingStyles.transform : 'translate(0, -200%)', // keep off the page when measuring
-          // transformOrigin: `${x}px ${y}px`,
-          transition: 'opacity 250ms linear',
-          // transition:
-          //   "opacity 250ms linear, transform 500ms cubic-bezier(0.25, 0.8, 0.5, 1)",
-          opacity: isPositioned ? '1' : '0',
-        }}
-        // Floating UI interally calculates logical alignment based the `dir` attribute on
-        // the reference/floating node, we must add this attribute here to ensure
-        // this is calculated when portalled as well as inline.
+        style={inlineStyle}
         dir={dir}
       >
         <div className="usertour-widget-popper-outline usertour-widget-popper-outline--bubble-placement-bottom-left">
@@ -416,8 +300,8 @@ const PopperContentPotal = forwardRef<HTMLDivElement, PopperContentProps>((props
               right: 'translateY(50%) rotate(90deg) translateX(-50%)',
               bottom: 'rotate(180deg)',
               left: 'translateY(50%) rotate(-90deg) translateX(50%)',
-            }[placedSide],
-            visibility: cannotCenterArrow ? 'hidden' : undefined,
+            }[placedSide] as string,
+            ...(middlewareData.customHide?.referenceHidden ? hiddenStyle : { opacity: 1 }),
           }}
         >
           <ArrowPrimitive.Root
@@ -425,7 +309,6 @@ const PopperContentPotal = forwardRef<HTMLDivElement, PopperContentProps>((props
             height={arrowSize.height}
             style={{
               fill: arrowColor,
-              // ensures the element can be measured correctly (mostly for if SVG)
               display: 'block',
             }}
           />
@@ -569,51 +452,6 @@ const PopperClose = forwardRef<HTMLButtonElement, PopoverCloseProps>(
 
 PopperClose.displayName = CLOSE_NAME;
 
-const transformOrigin = (options: {
-  arrowWidth: number;
-  arrowHeight: number;
-}): Middleware => ({
-  name: 'transformOrigin',
-  options,
-  fn(data) {
-    const { placement, rects, middlewareData } = data;
-
-    const cannotCenterArrow = middlewareData.arrow?.centerOffset !== 0;
-    const isArrowHidden = cannotCenterArrow;
-    const arrowWidth = isArrowHidden ? 0 : options.arrowWidth;
-    const arrowHeight = isArrowHidden ? 0 : options.arrowHeight;
-
-    const [placedSide, placedAlign] = getSideAndAlignFromPlacement(placement);
-    const noArrowAlign = { start: '0%', center: '50%', end: '100%' }[placedAlign];
-
-    const arrowXCenter = (middlewareData.arrow?.x ?? 0) + arrowWidth / 2;
-    const arrowYCenter = (middlewareData.arrow?.y ?? 0) + arrowHeight / 2;
-
-    let x = '';
-    let y = '';
-
-    if (placedSide === 'bottom') {
-      x = isArrowHidden ? noArrowAlign : `${arrowXCenter}px`;
-      y = `${-arrowHeight}px`;
-    } else if (placedSide === 'top') {
-      x = isArrowHidden ? noArrowAlign : `${arrowXCenter}px`;
-      y = `${rects.floating.height + arrowHeight}px`;
-    } else if (placedSide === 'right') {
-      x = `${-arrowHeight}px`;
-      y = isArrowHidden ? noArrowAlign : `${arrowYCenter}px`;
-    } else if (placedSide === 'left') {
-      x = `${rects.floating.width + arrowHeight}px`;
-      y = isArrowHidden ? noArrowAlign : `${arrowYCenter}px`;
-    }
-    return { data: { x, y } };
-  },
-});
-
-function getSideAndAlignFromPlacement(placement: Placement) {
-  const [side, align = 'center'] = placement.split('-');
-  return [side as Side, align as Align] as const;
-}
-
 type PopperStaticContentProps = PopperContentProps & {
   height: string;
   showArrow: boolean;
@@ -635,7 +473,6 @@ const PopperStaticContent = forwardRef<HTMLDivElement, PopperStaticContentProps>
       className,
     } = props;
 
-    const baseSide = OPPOSITE_SIDE[side];
     return (
       <div
         className={cn('usertour-widget-popper usertour-centered usertour-enabled', className)}
@@ -648,7 +485,7 @@ const PopperStaticContent = forwardRef<HTMLDivElement, PopperStaticContentProps>
           style={{
             width,
             height,
-            overflow: 'scroll',
+            overflow: 'hidden',
           }}
         >
           <div className="usertour-widget-popper__frame-wrapper">
@@ -663,7 +500,7 @@ const PopperStaticContent = forwardRef<HTMLDivElement, PopperStaticContentProps>
               position: 'absolute',
               left: width ? Number.parseInt(width) / 2 - arrowSize.width / 2 : '50%',
               top: `-${arrowSize.height}px`,
-              [baseSide]: 0,
+              [OPPOSITE_SIDE[side]]: 0,
               transformOrigin: {
                 top: '',
                 right: '0 0',
@@ -676,6 +513,7 @@ const PopperStaticContent = forwardRef<HTMLDivElement, PopperStaticContentProps>
                 bottom: 'rotate(180deg)',
                 left: 'translateY(50%) rotate(-90deg) translateX(50%)',
               }[side],
+              opacity: 1,
             }}
           >
             <ArrowPrimitive.Root
@@ -699,11 +537,10 @@ const PopperMadeWith = forwardRef<HTMLDivElement>((_, ref) => {
     <>
       <div ref={ref} className="absolute bottom-2 left-3 text-xs	opacity-50	hover:opacity-75		">
         <a
-          href="https://www.usertour.io"
+          href="https://www.usertour.io?utm_source=made-with-usertour&utm_medium=link&utm_campaign=made-with-usertour-widget"
           className="!text-sdk-foreground !no-underline	 flex flex-row space-x-0.5 items-center !font-sans "
           target="_blank"
-          rel="noreferrer"
-          // onClick={()=>{window.top?.open("https://www.usertour.io", "_blank")}}
+          rel="noopener noreferrer"
         >
           <UsertourIcon width={14} height={14} />
           <span>Made with Usertour</span>
@@ -714,10 +551,155 @@ const PopperMadeWith = forwardRef<HTMLDivElement>((_, ref) => {
 });
 
 interface PopperProgresshProps {
-  width: number;
+  width?: number;
+  type?: ProgressBarType;
+  currentStepIndex?: number;
+  totalSteps?: number;
+  position?: 'top' | 'bottom';
 }
+
+const PopperProgressContainer = forwardRef<
+  HTMLDivElement,
+  {
+    children: React.ReactNode;
+    className?: string;
+    type?: ProgressBarType;
+    position?: 'top' | 'bottom';
+  }
+>((props, ref) => {
+  const { children, className, type, position = 'top' } = props;
+
+  // Get the appropriate CSS variable based on type
+  const getProgressHeightVariable = (progressType?: ProgressBarType) => {
+    switch (progressType) {
+      case ProgressBarType.NARROW:
+        return 'var(--usertour-narrow-progress-bar-height)';
+      case ProgressBarType.CHAIN_ROUNDED:
+        return 'var(--usertour-rounded-progress-bar-height)';
+      case ProgressBarType.CHAIN_SQUARED:
+        return 'var(--usertour-squared-progress-bar-height)';
+      case ProgressBarType.DOTS:
+        return 'var(--usertour-dotted-progress-bar-height)';
+      case ProgressBarType.NUMBERED:
+        return 'var(--usertour-numbered-progress-bar-height)';
+      default:
+        return 'var(--usertour-progress-bar-height)';
+    }
+  };
+
+  const progressHeight = getProgressHeightVariable(type);
+  const multiplier = type === ProgressBarType.NUMBERED ? 0.5 : 1;
+
+  // Calculate margin values based on position and multiplier
+  const marginValue = `calc(${progressHeight} * ${multiplier})`;
+  const marginTop = position === 'bottom' ? marginValue : '0';
+  const marginBottom = position === 'top' ? marginValue : '0';
+
+  return (
+    <div
+      className={cn('w-full flex items-center justify-center overflow-hidden', className)}
+      ref={ref}
+      style={{
+        marginTop,
+        marginBottom,
+      }}
+    >
+      {children}
+    </div>
+  );
+});
+PopperProgressContainer.displayName = 'PopperProgressContainer';
+
 const PopperProgress = forwardRef<HTMLDivElement, PopperProgresshProps>((props, ref) => {
-  const { width = 0 } = props;
+  const {
+    type = ProgressBarType.FULL_WIDTH,
+    currentStepIndex = 0,
+    totalSteps = 1,
+    position = 'top',
+  } = props;
+
+  // Calculate progress percentage based on currentStepIndex and totalSteps
+  // currentStepIndex is 0-based, so we add 1 for display and progress calculation
+  const displayStep = currentStepIndex + 1;
+  const progressPercentage = totalSteps > 0 ? (displayStep / totalSteps) * 100 : 0;
+  const maxItems = totalSteps;
+
+  if (type === ProgressBarType.NARROW) {
+    return (
+      <>
+        <PopperProgressContainer ref={ref} type={type} position={position}>
+          <div className="w-[80px] h-sdk-narrow-progress border border-sdk-progress rounded-lg">
+            <div
+              className="h-full bg-sdk-progress transition-[width] duration-300"
+              style={{ width: `${progressPercentage}%` }}
+            />
+          </div>
+        </PopperProgressContainer>
+      </>
+    );
+  }
+  if (type === ProgressBarType.CHAIN_ROUNDED) {
+    return (
+      <>
+        <PopperProgressContainer ref={ref} type={type} position={position}>
+          {Array.from({ length: maxItems }, (_, index) => (
+            <div
+              key={index}
+              className={`h-sdk-rounded-progress w-sdk-rounded-progress rounded-lg border border-sdk-progress transition-colors duration-300 mx-1 ${
+                index < displayStep ? 'bg-sdk-progress' : ''
+              }`}
+            />
+          ))}
+        </PopperProgressContainer>
+      </>
+    );
+  }
+  if (type === ProgressBarType.CHAIN_SQUARED) {
+    return (
+      <>
+        <PopperProgressContainer ref={ref} type={type} position={position}>
+          {Array.from({ length: maxItems }, (_, index) => (
+            <div
+              key={index}
+              className={`h-sdk-squared-progress w-sdk-squared-progress border border-sdk-progress transition-colors duration-300 mx-1 ${
+                index < displayStep ? 'bg-sdk-progress' : ''
+              }`}
+            />
+          ))}
+        </PopperProgressContainer>
+      </>
+    );
+  }
+
+  if (type === ProgressBarType.DOTS) {
+    return (
+      <>
+        <PopperProgressContainer ref={ref} type={type} position={position}>
+          {Array.from({ length: maxItems }, (_, index) => (
+            <div
+              key={index}
+              className={`h-sdk-dotted-progress w-sdk-dotted-progress border border-sdk-progress rounded-full transition-colors duration-300 mx-0.5 ${
+                index < displayStep ? 'bg-sdk-progress' : ''
+              }`}
+            />
+          ))}
+        </PopperProgressContainer>
+      </>
+    );
+  }
+
+  if (type === ProgressBarType.NUMBERED) {
+    return (
+      <>
+        <PopperProgressContainer ref={ref} type={type} position={position}>
+          <span className="text-sdk-numbered-progress text-sdk-progress font-bold">
+            {displayStep} of {totalSteps}
+          </span>
+        </PopperProgressContainer>
+      </>
+    );
+  }
+
   return (
     <>
       <div className="h-2.5" />
@@ -728,7 +710,7 @@ const PopperProgress = forwardRef<HTMLDivElement, PopperProgresshProps>((props, 
       >
         <div
           className="h-full bg-sdk-progress transition-[width] duration-200"
-          style={{ width: `${width}%` }}
+          style={{ width: `${progressPercentage}%` }}
         />
       </div>
     </>

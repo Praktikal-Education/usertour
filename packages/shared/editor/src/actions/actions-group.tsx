@@ -1,14 +1,14 @@
 import { CodeIcon, Link2Icon, OpenInNewWindowIcon } from '@radix-ui/react-icons';
-import { EDITOR_RICH_ACTION } from '@usertour-ui/constants';
+import { EDITOR_RICH_ACTION } from '@usertour-packages/constants';
 import {
   DropdownMenu,
   DropdownMenuContent,
   DropdownMenuItem,
   DropdownMenuTrigger,
-} from '@usertour-ui/dropdown-menu';
-import { ArrowRightIcon, CloseCircleIcon, PlusIcon } from '@usertour-ui/icons';
-import { hasActionError } from '@usertour-ui/shared-utils';
-import { ContentActionsItemType, RulesCondition } from '@usertour-ui/types';
+} from '@usertour-packages/dropdown-menu';
+import { ArrowRightIcon, CloseCircleIcon, PlusIcon } from '@usertour-packages/icons';
+import { hasActionError } from '@usertour/helpers';
+import { ContentActionsItemType, RulesCondition } from '@usertour/types';
 import { ReactNode, useCallback, useEffect } from 'react';
 import { useState } from 'react';
 import { ActionsGroupContext } from '../contexts/actions-group-context';
@@ -46,7 +46,7 @@ const contentActionsItem = [
   },
   {
     type: ContentActionsItemType.FLOW_START,
-    text: 'Start new flow',
+    text: 'Start new flow/checklist',
     IconElement: OpenInNewWindowIcon,
     RulesElement: ContentActionsContents,
   },

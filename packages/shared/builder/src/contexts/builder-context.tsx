@@ -1,7 +1,5 @@
-import { useLazyQuery, useMutation } from '@apollo/client';
-import { addContentStep, addContentSteps, getContent, getContentVersion } from '@usertour-ui/gql';
-import { getErrorMessage, isEqual } from '@usertour-ui/shared-utils';
-import { Content, ContentDataType, ContentVersion, Step, Theme } from '@usertour-ui/types';
+import { defaultStep, getErrorMessage, isEqual } from '@usertour/helpers';
+import { Content, ContentDataType, ContentVersion, Step, Theme } from '@usertour/types';
 import {
   ReactNode,
   createContext,
@@ -12,9 +10,17 @@ import {
   useState,
 } from 'react';
 
-import { useToast } from '@usertour-ui/use-toast';
+import { useToast } from '@usertour-packages/use-toast';
 import { debug } from '../utils/logger';
 import { SelectorOutput } from '../utils/screenshot';
+import { getDefaultDataForType } from '@usertour-packages/shared-editor';
+import { createStepCopy } from '@usertour-packages/shared-editor';
+import {
+  useGetContentLazyQuery,
+  useGetContentVersionLazyQuery,
+  useAddContentStepsMutation,
+  useAddContentStepMutation,
+} from '@usertour-packages/shared-hooks';
 
 export enum BuilderMode {
   ELEMENT_SELECTOR = 'element-selector',
@@ -99,6 +105,12 @@ interface BuilderContextProps {
   contentRef: React.MutableRefObject<HTMLDivElement | undefined>;
   fetchContentAndVersion: (contentId: string, versionId: string) => Promise<boolean | Content>;
   createStep: (currentVersion: ContentVersion, step: Step) => Promise<Step | undefined>;
+  createNewStep: (
+    currentVersion: ContentVersion,
+    sequence: number,
+    stepType?: string,
+    duplicateStep?: Step,
+  ) => Promise<Step | undefined>;
 }
 
 export const BuilderContext = createContext<BuilderContextProps | null>(null);
@@ -121,9 +133,6 @@ export const BuilderProvider = (props: BuilderProviderProps) => {
   const [selectorOutput, setSelectorOutput] = useState<SelectorOutput | null>(null);
   const [isShowError, setIsShowError] = useState<boolean>(false);
   const [position, setPosition] = useState('left');
-  const [queryContent] = useLazyQuery(getContent);
-  const [queryContentVersion] = useLazyQuery(getContentVersion);
-  const [addContentStepsMutation] = useMutation(addContentSteps);
   const [isLoading, setIsLoading] = useState(true);
   const [currentLocation, setCurrentLocation] = useState('');
   const [currentMode, setCurrentMode] = useState<CurrentMode>({
@@ -133,9 +142,14 @@ export const BuilderProvider = (props: BuilderProviderProps) => {
   const contentRef = useRef<HTMLDivElement | undefined>();
   const [currentVersion, setCurrentVersion] = useState<ContentVersion | undefined>();
   const [backupVersion, setBackupVersion] = useState<ContentVersion | undefined>();
-  const [addContentStepMutation] = useMutation(addContentStep);
   const [currentTheme, setCurrentTheme] = useState<Theme | undefined>();
   const { toast } = useToast();
+
+  // GraphQL hooks
+  const { invoke: getContent } = useGetContentLazyQuery();
+  const { invoke: getContentVersion } = useGetContentVersionLazyQuery();
+  const { invoke: addContentSteps } = useAddContentStepsMutation();
+  const { invoke: addContentStep } = useAddContentStepMutation();
 
   const updateCurrentStep = (fn: Step | ((pre: Step) => Step)) => {
     setCurrentStep((pre) => {
@@ -150,22 +164,20 @@ export const BuilderProvider = (props: BuilderProviderProps) => {
     if (!contentId) {
       return false;
     }
-    const ret = await queryContent({ variables: { contentId } });
-    if (!ret?.data?.getContent) {
+    const content = await getContent(contentId);
+    if (!content) {
       return false;
     }
-    return ret?.data?.getContent as Content;
+    return content as Content;
   };
 
   const fetchVersion = async (versionId: string) => {
-    const version = await queryContentVersion({
-      variables: { versionId },
-    });
+    const version = await getContentVersion(versionId);
 
-    if (!version?.data?.getContentVersion) {
+    if (!version) {
       return false;
     }
-    return version?.data?.getContentVersion as ContentVersion;
+    return version as ContentVersion;
   };
 
   const fetchContentAndVersion = async (contentId: string, versionId: string) => {
@@ -237,10 +249,8 @@ export const BuilderProvider = (props: BuilderProviderProps) => {
       steps,
     };
     try {
-      const response = await addContentStepsMutation({
-        variables,
-      });
-      if (response.data.addContentSteps) {
+      const response = await addContentSteps(variables);
+      if (response) {
         await fetchContentAndVersion(currentVersion.contentId, currentVersion.id);
       }
     } catch (error) {
@@ -254,12 +264,10 @@ export const BuilderProvider = (props: BuilderProviderProps) => {
 
   const createStep = async (currentVersion: ContentVersion, step: Step) => {
     try {
-      const ret = await addContentStepMutation({
-        variables: { data: { ...step, versionId: currentVersion.id } },
-      });
-      if (ret.data.addContentStep) {
+      const createdStep = await addContentStep({ ...step, versionId: currentVersion.id });
+      if (createdStep) {
         await fetchContentAndVersion(currentVersion.contentId, currentVersion.id);
-        return ret.data.addContentStep as Step;
+        return createdStep as Step;
       }
     } catch (error) {
       toast({
@@ -267,6 +275,30 @@ export const BuilderProvider = (props: BuilderProviderProps) => {
         title: getErrorMessage(error),
       });
     }
+  };
+
+  const createNewStep = async (
+    currentVersion: ContentVersion,
+    sequence: number,
+    stepType?: string,
+    duplicateStep?: Step,
+  ) => {
+    const finalStepType = stepType || duplicateStep?.type || 'tooltip';
+    const step: Step = duplicateStep
+      ? createStepCopy(duplicateStep, sequence)
+      : {
+          ...defaultStep,
+          type: finalStepType,
+          name: 'Untitled',
+          data: getDefaultDataForType(finalStepType),
+          sequence,
+          setting: {
+            ...defaultStep.setting,
+            width: finalStepType === 'modal' ? 550 : defaultStep.setting.width,
+          },
+        };
+
+    return await createStep(currentVersion, step);
   };
 
   useEffect(() => {
@@ -313,6 +345,7 @@ export const BuilderProvider = (props: BuilderProviderProps) => {
     contentRef,
     fetchContentAndVersion,
     createStep,
+    createNewStep,
     envToken,
   };
   return <BuilderContext.Provider value={value}>{children}</BuilderContext.Provider>;

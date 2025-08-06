@@ -1,8 +1,8 @@
 import { ThemeSelectColor } from '@/components/molecules/theme/theme-select-color';
 import { ThemeSettingInput } from '@/components/molecules/theme/theme-setting-input';
 import { ThemeSettingSelect } from '@/components/molecules/theme/theme-setting-select';
-import { ModalPosition } from '@usertour-ui/types';
-import { useThemeSettingsContext } from '.';
+import { ModalPosition } from '@usertour/types';
+import { useThemeSettingsContext } from '../theme-settings-panel';
 
 const placementItems = [
   { name: 'Top Left', value: ModalPosition.LeftTop },
@@ -10,6 +10,11 @@ const placementItems = [
   { name: 'Bottom Left', value: ModalPosition.LeftBottom },
   { name: 'Bottom Right', value: ModalPosition.RightBottom },
   { name: 'Center', value: ModalPosition.Center },
+];
+
+const textDecorationItems = [
+  { name: 'None (no line-through)', value: 'none' },
+  { name: 'Line-through', value: 'line-through' },
 ];
 
 export const ThemeSettingsChecklist = () => {
@@ -83,10 +88,12 @@ export const ThemeSettingsChecklist = () => {
           text="Z-index"
           name="checklist-z-index"
           disableUnit={true}
+          placeholder="Auto"
           tooltip="How high on the web page's z axis the checklist should appear. Leave empty to use Usertour's default behavior."
-          defaultValue={String(settings.checklist.zIndex)}
+          defaultValue={settings.checklist.zIndex ? String(settings.checklist.zIndex) : ''}
           onChange={(value: string) => {
-            update({ zIndex: Number(value) });
+            const numValue = value === '' ? undefined : Number(value);
+            update({ zIndex: numValue });
           }}
         />
         <ThemeSelectColor
@@ -98,6 +105,19 @@ export const ThemeSettingsChecklist = () => {
           autoColor={finalSettings?.checklist.checkmarkColor}
           onChange={(value: string) => {
             update({ checkmarkColor: value });
+          }}
+        />
+        <ThemeSettingSelect
+          text="Completed task text decoration"
+          name="checklist-completed-task-text-decoration"
+          items={textDecorationItems}
+          tooltip="Controls the text decoration of the completed task."
+          defaultValue={settings.checklist.completedTaskTextDecoration ?? 'none'}
+          vertical={true}
+          onValueChange={(value: string) => {
+            update({
+              completedTaskTextDecoration: value,
+            });
           }}
         />
       </div>

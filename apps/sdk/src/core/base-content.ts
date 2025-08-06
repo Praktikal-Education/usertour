@@ -1,29 +1,33 @@
-import { convertSettings } from '@usertour-ui/shared-utils';
-import { convertToCssVars } from '@usertour-ui/shared-utils';
+import { convertSettings } from '@usertour/helpers';
+import { convertToCssVars } from '@usertour/helpers';
 import {
+  BizCompany,
+  ContentDataType,
   EventAttributes,
+  SDKConfig,
   SDKContent,
   Step,
   Theme,
   UserTourTypes,
-  contentEndReason,
   contentStartReason,
-} from '@usertour-ui/types';
-import { isEqual } from 'lodash';
-import { ReportEventOptions, ReportEventParams } from '../types/content';
+} from '@usertour/types';
+import { ReportEventParams } from '../types/content';
 import autoBind from '../utils/auto-bind';
 import { findLatestEvent, isValidContent } from '../utils/conditions';
-import { AppEvents } from '../utils/event';
 import { window } from '../utils/globals';
 import { buildNavigateUrl } from '../utils/navigate-utils';
 import { App } from './app';
-import { getAssets, SESSION_TIMEOUT_HOURS } from './common';
+import { getAssets } from './common';
 import { Config } from './config';
 import { Evented } from './evented';
 import { ExternalStore } from './store';
 import { differenceInHours } from 'date-fns';
+import { logger } from '../utils/logger';
+import { BaseStore } from '../types/store';
+import { getActivedTheme } from '../utils/content-utils';
+import isEqual from 'fast-deep-equal';
 
-export abstract class BaseContent<T = any> extends Evented {
+export abstract class BaseContent<T extends BaseStore = any> extends Evented {
   private readonly instance: App;
   private content: SDKContent;
   private readonly store: ExternalStore<T>;
@@ -32,7 +36,7 @@ export abstract class BaseContent<T = any> extends Evented {
   private isStarted = false;
   private sessionId = '';
   private currentStep?: Step | null;
-  constructor(instance: App, content: SDKContent, defaultStore: T) {
+  constructor(instance: App, content: SDKContent, defaultStore?: T) {
     super();
     autoBind(this);
     this.store = new ExternalStore<T>(defaultStore);
@@ -51,7 +55,7 @@ export abstract class BaseContent<T = any> extends Evented {
     if (!this.canAutoStart()) {
       return;
     }
-    if (this.isStarted) {
+    if (this.hasStarted()) {
       return;
     }
     this.reset();
@@ -71,34 +75,30 @@ export abstract class BaseContent<T = any> extends Evented {
    */
   async start(reason?: string, cvid?: string) {
     const reusedSessionId = this.getReusedSessionId();
-    if (reusedSessionId && this.sessionIsTimeout()) {
-      this.sessionId = reusedSessionId;
-      await this.close(contentEndReason.SESSION_TIMEOUT);
-      return;
-    }
-    const sessionId = reusedSessionId || (await this.createSessionId());
+    const sessionId = reusedSessionId || (await this.createSessionId(reason));
     if (!sessionId) {
       throw new Error('Failed to create user session.');
     }
     this.sessionId = sessionId;
-    this.isStarted = true;
-    this.trigger(AppEvents.CONTENT_AUTO_START_ACTIVATED, { reason });
-    this.show(cvid);
+    this.setStarted(true);
+    await this.show(cvid);
+    // Handle additional logic after content is shown
+    await this.handleAfterShow(!reusedSessionId);
   }
 
   /**
    * Checks if the content can auto start
    * @returns {boolean} True if the content can auto start, false otherwise
    */
-  canAutoStart() {
-    return !this.hasDismissed() && this.isAutoStart() && this.isValid() && this.hasContainer();
+  canAutoStart(): boolean {
+    return !this.hasStarted() && this.isAutoStart() && this.isValid();
   }
 
   /**
    * Checks if the content has been dismissed
    * @returns {boolean} True if the content has been dismissed, false otherwise
    */
-  hasDismissed() {
+  hasDismissed(): boolean {
     return this.isDismissed;
   }
 
@@ -108,6 +108,14 @@ export abstract class BaseContent<T = any> extends Evented {
    */
   setDismissed(value: boolean) {
     this.isDismissed = value;
+  }
+
+  /**
+   * Sets the started state
+   * @param value - The value to set the started state to
+   */
+  setStarted(value: boolean) {
+    this.isStarted = value;
   }
 
   /**
@@ -141,6 +149,15 @@ export abstract class BaseContent<T = any> extends Evented {
   setContent(content: SDKContent) {
     this.content = structuredClone(content);
     this.config.setConfig(content.config);
+  }
+
+  /**
+   * Removes the latest session from the content
+   */
+  removeContentLatestSession() {
+    if (this.content?.latestSession) {
+      this.content.latestSession = undefined;
+    }
   }
 
   /**
@@ -183,22 +200,30 @@ export abstract class BaseContent<T = any> extends Evented {
    * Set the store
    * @param store - The store to set
    */
-  setStore(store: T) {
+  setStore(store: T | undefined) {
     this.store.setData(store);
+  }
+
+  /**
+   * Check if the content is open
+   * @returns {boolean} True if the content is open, false otherwise
+   */
+  isOpen(): boolean {
+    return this.getStore()?.getSnapshot()?.openState === true;
   }
 
   /**
    * Open the store
    */
   open() {
-    this.updateStore({ openState: true } as unknown as Partial<T>);
+    this.updateStore({ openState: true } as Partial<T>);
   }
 
   /**
    * Hide the store
    */
   hide() {
-    this.updateStore({ openState: false } as unknown as Partial<T>);
+    this.updateStore({ openState: false } as Partial<T>);
   }
 
   /**
@@ -295,8 +320,18 @@ export abstract class BaseContent<T = any> extends Evented {
    * @param reason - The reason for starting the tour
    * @returns {Promise<void>} A promise that resolves when the tour is started
    */
-  startTour(contentId: string | undefined, reason: string) {
-    return this.getInstance().startTour(contentId, reason);
+  startTour(contentId: string | undefined, reason: string, cvid?: string) {
+    return this.getInstance().startTour(contentId, reason, { cvid });
+  }
+
+  /**
+   * Starts a checklist
+   * @param contentId - The ID of the content to start
+   * @param reason - The reason for starting the checklist
+   * @returns {Promise<void>} A promise that resolves when the checklist is started
+   */
+  startChecklist(contentId: string | undefined, reason: string) {
+    return this.getInstance().startChecklist(contentId, reason);
   }
 
   /**
@@ -334,11 +369,11 @@ export abstract class BaseContent<T = any> extends Evented {
 
   /**
    * Creates a new session ID
-   * @returns {Promise<string>} A promise that resolves to the new session ID
    */
-  async createSessionId() {
-    const session = await this.getInstance().createSession(this.getContent().contentId);
-    return session?.id;
+  async createSessionId(reason = 'auto_start'): Promise<string | null> {
+    const contentId = this.getContent().contentId;
+    const session = await this.getInstance().createSession(contentId, reason);
+    return session ? session.id : null;
   }
 
   /**
@@ -352,12 +387,21 @@ export abstract class BaseContent<T = any> extends Evented {
       return false;
     }
     const latestEvent = findLatestEvent(bizEvents);
+    const sessionTimeoutHours = this.getInstance().getSessionTimeout();
     if (latestEvent?.createdAt) {
       const now = new Date();
       const eventTime = new Date(latestEvent.createdAt);
-      return differenceInHours(now, eventTime) > SESSION_TIMEOUT_HOURS;
+      return differenceInHours(now, eventTime) > sessionTimeoutHours;
     }
     return false;
+  }
+
+  /**
+   * Get the target missing seconds
+   * @returns {number} The target missing seconds
+   */
+  getTargetMissingSeconds() {
+    return this.getInstance().getTargetMissingSeconds();
   }
 
   /**
@@ -366,7 +410,7 @@ export abstract class BaseContent<T = any> extends Evented {
    * @param options - The options for the event
    * @returns {Promise<void>} A promise that resolves when the event is reported
    */
-  private async reportEvent(event: Partial<ReportEventParams>, options: ReportEventOptions = {}) {
+  private async reportEvent(event: Partial<ReportEventParams>) {
     const userInfo = this.getUserInfo();
     const content = this.getContent();
     const { externalId: userId } = userInfo || {};
@@ -391,40 +435,32 @@ export abstract class BaseContent<T = any> extends Evented {
       sessionId,
     };
 
-    return await this.getInstance().reportEvent(reportEvent, options);
+    return await this.getInstance().reportEvent(reportEvent);
   }
 
-  async reportEventWithSession(
-    event: Partial<ReportEventParams>,
-    options: ReportEventOptions = {},
-  ) {
-    const sessionId = this.getSessionId();
+  async reportEventWithSession(event: Partial<ReportEventParams>) {
+    const sessionId = event.sessionId || this.getSessionId();
     if (!sessionId) {
       return;
     }
-    await this.reportEvent(
-      {
-        ...event,
-        sessionId,
-      },
-      options,
-    );
+    await this.reportEvent({
+      ...event,
+      sessionId,
+    });
   }
 
   /**
    * Get the company information
-   * @returns {Object} The company information
    */
-  getCompanyInfo() {
+  getCompanyInfo(): BizCompany | undefined {
     return this.getInstance().companyInfo;
   }
 
   /**
    * Unsets the active tour
-   * @returns {Promise<void>} A promise that resolves when the active tour is unset
    */
-  unsetActiveTour() {
-    return this.getInstance().unsetActiveTour();
+  unsetActiveTour(): void {
+    this.getInstance().unsetActiveTour();
   }
 
   /**
@@ -446,12 +482,33 @@ export abstract class BaseContent<T = any> extends Evented {
   /**
    * Starts a new tour
    * @param contentId - The ID of the content to start
-   * @returns {Promise<void>} A promise that resolves when the new tour is started
    */
-  async startNewTour(contentId: string) {
-    await this.startTour(contentId, contentStartReason.ACTION);
+  async startNewTour(contentId: string, cvid?: string) {
+    await this.startTour(contentId, contentStartReason.ACTION, cvid);
   }
 
+  /**
+   * Starts a new content
+   * @param contentId - The ID of the content to start
+   */
+  async startNewContent(contentId: string, cvid?: string): Promise<void> {
+    const content = this.getOriginContents()?.find((item) => item.contentId === contentId);
+    if (content?.type === ContentDataType.CHECKLIST) {
+      await this.startNewChecklist(contentId);
+    } else if (content?.type === ContentDataType.FLOW) {
+      await this.startNewTour(contentId, cvid);
+    } else {
+      logger.error(`Unsupported content type: ${content?.type}`);
+    }
+  }
+
+  /**
+   * Starts a new checklist
+   * @param contentId - The ID of the content to start
+   */
+  async startNewChecklist(contentId: string): Promise<void> {
+    await this.startChecklist(contentId, contentStartReason.ACTION);
+  }
   /**
    * Handles the navigation
    * @param data - The data to navigate
@@ -459,80 +516,103 @@ export abstract class BaseContent<T = any> extends Evented {
   handleNavigate(data: any) {
     const userInfo = this.getUserInfo();
     const url = buildNavigateUrl(data.value, userInfo);
-    window?.top?.open(url, data.openType === 'same' ? '_self' : '_blank');
+
+    // Check if custom navigation function is set
+    const customNavigate = this.getInstance().getCustomNavigate();
+    if (customNavigate) {
+      // Use custom navigation function
+      customNavigate(url);
+    } else {
+      // Use default behavior
+      window?.top?.open(url, data.openType === 'same' ? '_self' : '_blank');
+    }
   }
 
   /**
    * Activates the content conditions
-   * @returns {Promise<void>} A promise that resolves when the content conditions are activated
    */
-  async activeContentConditions() {
+  async activeContentConditions(): Promise<void> {
     return await this.getConfig().activeConditions();
   }
 
   /**
    * Get the SDK configuration
-   * @returns {Object} The SDK configuration
    */
-  getSdkConfig() {
+  getSdkConfig(): SDKConfig {
     return this.getInstance().getSdkConfig();
   }
 
   /**
-   * Get the base information for the store
-   * @returns {Object} The base information for the store
+   * Get the active theme
    */
-  getStoreBaseInfo() {
-    const themes = this.getThemes();
-    const userInfo = this.getUserInfo();
-    const zIndex = this.getBaseZIndex();
-    const sdkConfig = this.getSdkConfig();
-    if (!themes || themes.length === 0) {
-      return {};
+  async getActivedTheme(): Promise<Theme | undefined> {
+    const themes = this.getThemes() || [];
+    const themeId = this.getCurrentStep()?.themeId || this.getContent()?.themeId;
+    if (!themeId || themes.length === 0) {
+      return undefined;
     }
-    let theme: Theme | undefined;
-    const currentStep = this.getCurrentStep();
-    if (currentStep?.themeId) {
-      theme = themes.find((item) => item.id === currentStep?.themeId);
-    } else {
-      theme = themes.find((item) => this.getContent()?.themeId === item.id);
-    }
-    if (!theme) {
-      return {};
-    }
-    return {
-      sdkConfig,
-      assets: getAssets(theme),
-      globalStyle: convertToCssVars(convertSettings(theme.settings)),
-      theme,
-      zIndex,
-      userInfo,
-    };
+    return await getActivedTheme(themes, themeId);
   }
 
   /**
-   * Refreshes the app contents
-   * @returns {Promise<void>} A promise that resolves when the app contents are refreshed
+   * Checks if theme has changed and updates theme settings if needed
    */
-  async refreshContents() {
-    await this.getInstance().refresh();
+  protected async checkAndUpdateThemeSettings() {
+    const activeTheme = await this.getActivedTheme();
+    if (!activeTheme?.settings) {
+      return;
+    }
+
+    // Get current theme settings from store
+    const currentStore = this.getStore()?.getSnapshot();
+    const currentThemeSettings = currentStore?.themeSettings;
+
+    // Check if theme settings have changed using isEqual for deep comparison
+    if (!isEqual(currentThemeSettings, activeTheme.settings)) {
+      this.updateStore({
+        themeSettings: activeTheme.settings,
+      } as Partial<T>);
+    }
+  }
+
+  /**
+   * Get the base information for the store
+   */
+  async getStoreBaseInfo(): Promise<BaseStore | undefined> {
+    const userInfo = this.getUserInfo();
+    const zIndex = this.getBaseZIndex();
+    const sdkConfig = this.getSdkConfig();
+
+    const theme = await this.getActivedTheme();
+    if (!theme || !theme.settings) {
+      return undefined;
+    }
+    return {
+      sdkConfig,
+      assets: getAssets(theme.settings),
+      globalStyle: convertToCssVars(convertSettings(theme.settings)),
+      themeSettings: theme.settings,
+      zIndex,
+      userInfo,
+      openState: false,
+    };
   }
 
   /**
    * Checks if the content is the same as the new content
    * @param newContent - The new content to compare
-   * @returns {boolean} True if the content is the same, false otherwise
    */
-  isEqual(newContent: SDKContent) {
+  isEqual(newContent: SDKContent): boolean {
     return isEqual(this.getContent(), newContent);
   }
 
   abstract getReusedSessionId(): string | null;
   abstract monitor(): Promise<void>;
   abstract destroy(): void;
-  abstract show(cvid?: string): void;
+  abstract show(cvid?: string): Promise<void>;
   abstract close(reason?: string): Promise<void>;
   abstract reset(): void;
   abstract refresh(): void;
   abstract initializeEventListeners(): void;
+  abstract handleAfterShow(isNewSession?: boolean): Promise<void>;
 }

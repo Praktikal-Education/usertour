@@ -8,7 +8,7 @@ import {
   TextIcon,
   VideoIcon,
 } from '@radix-ui/react-icons';
-import { MultiCheckIcon, NpsIcon } from '@usertour-ui/icons';
+import { MultiCheckIcon, NpsIcon } from '@usertour-packages/icons';
 import { ContentEditorElement, ContentEditorElementType } from '../types/editor';
 
 type ContentTypeConfig = {
@@ -26,7 +26,7 @@ export const contentTypesConfig = [
       data: [
         {
           type: 'paragraph',
-          children: [{ text: 'Enter text here' }],
+          children: [{ text: 'Write text here' }],
         },
       ],
     },

@@ -1,14 +1,15 @@
 'use client';
 
 import { ChevronLeftIcon } from '@radix-ui/react-icons';
-import { Button } from '@usertour-ui/button';
-import { CardContent, CardFooter, CardHeader, CardTitle } from '@usertour-ui/card';
-import { SpinnerIcon } from '@usertour-ui/icons';
-import { ScrollArea } from '@usertour-ui/scroll-area';
+import { Button } from '@usertour-packages/button';
+import { CardContent, CardFooter, CardHeader, CardTitle } from '@usertour-packages/card';
+import { SpinnerIcon } from '@usertour-packages/icons';
+import { ScrollArea } from '@usertour-packages/scroll-area';
 import { ContentAlignment } from '../../components/content-alignment';
 import { useLauncherContext } from '../../contexts';
 import { SidebarContainer } from '../sidebar';
 import { LauncherPlacement } from './components/launcher-placement';
+import { useCallback } from 'react';
 
 const LauncherTargetHeader = () => {
   const { backToLauncher, setLauncherTarget } = useLauncherContext();
@@ -70,13 +71,13 @@ const LauncherTargetFooter = () => {
   const { isLoading, launcherTarget, backToLauncher, updateLocalData, setLauncherTarget } =
     useLauncherContext();
 
-  const handleSave = () => {
+  const handleSave = useCallback(() => {
     if (launcherTarget) {
       updateLocalData({ target: launcherTarget });
     }
     backToLauncher();
     setLauncherTarget(undefined);
-  };
+  }, [launcherTarget, updateLocalData, backToLauncher, setLauncherTarget]);
 
   return (
     <CardFooter className="flex-none p-5">

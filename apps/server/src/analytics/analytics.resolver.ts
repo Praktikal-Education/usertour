@@ -6,6 +6,7 @@ import { AnalyticsService } from './analytics.service';
 import { AnalyticsIdArgs } from './args/analytics-query.args';
 import { AnalyticsOrder } from './dto/analytics-order.input';
 import { AnalyticsQuery } from './dto/analytics-query.input';
+import { SessionQuery } from './dto/session-query.input';
 import { Analytics } from './models/analytics';
 import { BizSessionConnection } from './models/analytics-connection.model';
 import { Roles } from '@/common/decorators/roles.decorator';
@@ -22,18 +23,25 @@ export class AnalyticsResolver {
   @Roles([RolesScopeEnum.ADMIN, RolesScopeEnum.OWNER, RolesScopeEnum.VIEWER])
   async queryContentAnalytics(
     @Args()
-    { contentId, startDate = '', endDate = '', timezone }: AnalyticsIdArgs,
+    { contentId, startDate = '', endDate = '', timezone, environmentId }: AnalyticsIdArgs,
   ) {
-    return await this.service.queryContentAnalytics(contentId, startDate, endDate, timezone);
+    return await this.service.queryContentAnalytics(
+      environmentId,
+      contentId,
+      startDate,
+      endDate,
+      timezone,
+    );
   }
 
   @Query(() => GraphQLJSON)
   @Roles([RolesScopeEnum.ADMIN, RolesScopeEnum.OWNER, RolesScopeEnum.VIEWER])
   async queryContentQuestionAnalytics(
     @Args()
-    { contentId, startDate = '', endDate = '', timezone }: AnalyticsIdArgs,
+    { environmentId, contentId, startDate = '', endDate = '', timezone }: AnalyticsIdArgs,
   ) {
     return await this.service.queryContentQuestionAnalytics(
+      environmentId,
       contentId,
       startDate,
       endDate,
@@ -77,5 +85,15 @@ export class AnalyticsResolver {
     @Args('orderBy') orderBy: AnalyticsOrder,
   ) {
     return await this.service.listSessionsDetail(query, pagination, orderBy);
+  }
+
+  @Query(() => BizSessionConnection)
+  @Roles([RolesScopeEnum.ADMIN, RolesScopeEnum.OWNER, RolesScopeEnum.VIEWER])
+  async querySessionsByExternalId(
+    @Args() pagination: PaginationArgs,
+    @Args('query') query: SessionQuery,
+    @Args('orderBy') orderBy: AnalyticsOrder,
+  ) {
+    return await this.service.querySessionsByExternalId(query, pagination, orderBy);
   }
 }

@@ -4,13 +4,21 @@ import { Icons } from '@/components/atoms/icons';
 import { useAppContext } from '@/contexts/app-context';
 import { useMutation } from '@apollo/client';
 import { zodResolver } from '@hookform/resolvers/zod';
-import { Button } from '@usertour-ui/button';
-import { Form, FormControl, FormField, FormItem, FormLabel, FormMessage } from '@usertour-ui/form';
-import { updateProjectName } from '@usertour-ui/gql';
-import { Input } from '@usertour-ui/input';
-import { Separator } from '@usertour-ui/separator';
-import { getErrorMessage } from '@usertour-ui/shared-utils';
-import { useToast } from '@usertour-ui/use-toast';
+import { Button } from '@usertour-packages/button';
+import {
+  Form,
+  FormControl,
+  FormField,
+  FormItem,
+  FormLabel,
+  FormMessage,
+} from '@usertour-packages/form';
+import { updateProjectName } from '@usertour-packages/gql';
+import { Input } from '@usertour-packages/input';
+import { Separator } from '@usertour-packages/separator';
+import { Skeleton } from '@usertour-packages/skeleton';
+import { getErrorMessage } from '@usertour/helpers';
+import { useToast } from '@usertour-packages/use-toast';
 import { useState } from 'react';
 import { useForm } from 'react-hook-form';
 import * as z from 'zod';
@@ -28,8 +36,25 @@ const projectNameFormSchema = z.object({
 
 type ProjectNameFormValues = z.infer<typeof projectNameFormSchema>;
 
+// Skeleton component that matches the form structure
+const ProjectNameFormSkeleton = () => (
+  <div className="space-y-6">
+    <div className="flex flex-row justify-between items-center h-10">
+      <Skeleton className="h-8 w-48" />
+    </div>
+    <Separator />
+    <div className="space-y-8">
+      <div className="space-y-2">
+        <Skeleton className="h-4 w-24" />
+        <Skeleton className="h-10 w-full" />
+      </div>
+      <Skeleton className="h-10 w-20" />
+    </div>
+  </div>
+);
+
 export const ProjectNameForm = () => {
-  const { project, refetch } = useAppContext();
+  const { project, refetch, loading } = useAppContext();
   const [updateMutation] = useMutation(updateProjectName);
   const [isLoading, setIsLoading] = useState<boolean>(false);
   const form = useForm<ProjectNameFormValues>({
@@ -51,7 +76,6 @@ export const ProjectNameForm = () => {
         },
       });
       await refetch();
-      setIsLoading(false);
       toast({
         variant: 'success',
         title: 'The company name has been successfully updated',
@@ -61,9 +85,16 @@ export const ProjectNameForm = () => {
         variant: 'destructive',
         title: getErrorMessage(error),
       });
+    } finally {
       setIsLoading(false);
     }
   };
+
+  const isFormDisabled = isLoading || form.watch('name') === project?.name;
+
+  if (loading) {
+    return <ProjectNameFormSkeleton />;
+  }
 
   return (
     <div className="space-y-6">
@@ -80,16 +111,16 @@ export const ProjectNameForm = () => {
               <FormItem>
                 <FormLabel>Company Name</FormLabel>
                 <FormControl>
-                  <Input placeholder="Your Company name" {...field} />
+                  <Input placeholder="Your Company name" {...field} disabled={isLoading} />
                 </FormControl>
                 <FormMessage />
               </FormItem>
             )}
           />
 
-          <Button type="submit" disabled={form.watch('name') === project?.name}>
+          <Button type="submit" disabled={isFormDisabled}>
             {isLoading && <Icons.spinner className="mr-2 h-4 w-4 animate-spin" />}
-            Save
+            {isLoading ? 'Saving...' : 'Save'}
           </Button>
         </form>
       </Form>

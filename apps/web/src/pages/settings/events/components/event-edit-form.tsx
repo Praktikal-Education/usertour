@@ -3,19 +3,19 @@
 import { Icons } from '@/components/atoms/icons';
 import { ListSkeletonCount } from '@/components/molecules/skeleton';
 import { useAttributeListContext } from '@/contexts/attribute-list-context';
-import { Event } from '@/types/project';
-import { Attribute } from '@/types/project';
+import { Event } from '@usertour/types';
+import { Attribute } from '@usertour/types';
 import { useMutation, useQuery } from '@apollo/client';
 import { zodResolver } from '@hookform/resolvers/zod';
 import { QuestionMarkCircledIcon } from '@radix-ui/react-icons';
-import { Button } from '@usertour-ui/button';
+import { Button } from '@usertour-packages/button';
 import {
   Dialog,
   DialogContent,
   DialogFooter,
   DialogHeader,
   DialogTitle,
-} from '@usertour-ui/dialog';
+} from '@usertour-packages/dialog';
 import {
   Form,
   FormControl,
@@ -24,19 +24,25 @@ import {
   FormItem,
   FormLabel,
   FormMessage,
-} from '@usertour-ui/form';
-import { listAttributeOnEvents, updateEvent } from '@usertour-ui/gql';
-import { PlusIcon } from '@usertour-ui/icons';
-import { CloseIcon } from '@usertour-ui/icons';
-import { Input } from '@usertour-ui/input';
-import { Select, SelectContent, SelectItem, SelectTrigger } from '@usertour-ui/select';
-import { getErrorMessage } from '@usertour-ui/shared-utils';
-import { Tooltip, TooltipContent, TooltipProvider, TooltipTrigger } from '@usertour-ui/tooltip';
-import { useToast } from '@usertour-ui/use-toast';
+} from '@usertour-packages/form';
+import { listAttributeOnEvents, updateEvent } from '@usertour-packages/gql';
+import { PlusIcon } from '@usertour-packages/icons';
+import { CloseIcon } from '@usertour-packages/icons';
+import { Input } from '@usertour-packages/input';
+import { Select, SelectContent, SelectItem, SelectTrigger } from '@usertour-packages/select';
+import { getErrorMessage } from '@usertour/helpers';
+import {
+  Tooltip,
+  TooltipContent,
+  TooltipProvider,
+  TooltipTrigger,
+} from '@usertour-packages/tooltip';
+import { useToast } from '@usertour-packages/use-toast';
 import * as React from 'react';
 import { useCallback, useEffect, useState } from 'react';
 import { useForm } from 'react-hook-form';
 import { z } from 'zod';
+import { ScrollArea } from '@usertour-packages/scroll-area';
 
 interface EditFormProps {
   isOpen: boolean;
@@ -160,7 +166,8 @@ export const EventEditForm = (props: EditFormProps) => {
         setSelectedAttributeValue(value);
       } else {
         toast({
-          description: 'That attribute is already associated with the event.',
+          variant: 'warning',
+          title: 'That attribute is already associated with the event.',
         });
         setSelectedAttributeValue('');
       }
@@ -340,14 +347,16 @@ export const EventEditForm = (props: EditFormProps) => {
                                 </span>
                               </SelectTrigger>
                             </FormControl>
-                            <SelectContent className="w-full">
-                              {eventAttrs.map((eventAttrs) => {
-                                return (
-                                  <SelectItem value={`${eventAttrs.id}`} key={eventAttrs.id}>
-                                    {eventAttrs.displayName}
-                                  </SelectItem>
-                                );
-                              })}
+                            <SelectContent className="w-full" withoutPortal>
+                              <ScrollArea className="h-72">
+                                {eventAttrs.map((eventAttrs) => {
+                                  return (
+                                    <SelectItem value={`${eventAttrs.id}`} key={eventAttrs.id}>
+                                      {eventAttrs.displayName}
+                                    </SelectItem>
+                                  );
+                                })}
+                              </ScrollArea>
                             </SelectContent>
                           </Select>
 

@@ -1,6 +1,6 @@
 import { useQuery } from '@apollo/client';
-import { listContentVersions } from '@usertour-ui/gql';
-import { ContentVersion } from '@usertour-ui/types';
+import { listContentVersions } from '@usertour-packages/gql';
+import { ContentVersion } from '@usertour/types';
 import { ReactNode, createContext, useContext, useEffect, useState } from 'react';
 
 export interface ContentVersionListProviderProps {
@@ -10,6 +10,7 @@ export interface ContentVersionListProviderProps {
 
 export interface ContentVersionListContextValue {
   versionList: ContentVersion[];
+  loading: boolean;
   refetch: any;
 }
 
@@ -21,7 +22,7 @@ export function ContentVersionListProvider(props: ContentVersionListProviderProp
   const { children, contentId } = props;
   const [versionList, setVersionList] = useState<ContentVersion[]>([]);
 
-  const { data, refetch } = useQuery(listContentVersions, {
+  const { data, refetch, loading } = useQuery(listContentVersions, {
     variables: { contentId: contentId },
   });
 
@@ -39,6 +40,7 @@ export function ContentVersionListProvider(props: ContentVersionListProviderProp
 
   const value: ContentVersionListContextValue = {
     versionList,
+    loading,
     refetch,
   };
 

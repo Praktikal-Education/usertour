@@ -1,11 +1,4 @@
-import {
-  Attribute,
-  Content,
-  ContentVersion,
-  RulesCondition,
-  Segment,
-  Step,
-} from '@usertour-ui/types';
+import { Attribute, Content, ContentVersion, RulesCondition, Segment, Step } from '@usertour/types';
 import { ReactNode, createContext, useContext } from 'react';
 
 export interface ContentActionsProviderProps {
@@ -26,7 +19,12 @@ export interface ContentActionsProviderProps {
   token?: string;
   children?: ReactNode;
   zIndex: number;
-  createStep?: (currentVersion: ContentVersion, sequence: number) => Promise<Step | undefined>;
+  createStep?: (
+    currentVersion: ContentVersion,
+    sequence: number,
+    stepType?: string,
+    duplicateStep?: Step,
+  ) => Promise<Step | undefined>;
 }
 
 // export interface ContentActionsContextValue {

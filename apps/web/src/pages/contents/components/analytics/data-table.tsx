@@ -14,22 +14,31 @@ import {
   useReactTable,
 } from '@tanstack/react-table';
 
-import { Table, TableBody, TableCell, TableHead, TableHeader, TableRow } from '@usertour-ui/table';
+import {
+  Table,
+  TableBody,
+  TableCell,
+  TableHead,
+  TableHeader,
+  TableRow,
+} from '@usertour-packages/table';
 
 import { useBizSessionContext } from '@/contexts/biz-session-context';
 import { useState } from 'react';
 import { columns } from './columns';
 import { DataTablePagination } from './data-table-pagination';
 import { SessionActionDropdownMenu } from '@/components/molecules/session-action-dropmenu';
-import { Button } from '@usertour-ui/button';
+import { Button } from '@usertour-packages/button';
 import { DotsHorizontalIcon } from '@radix-ui/react-icons';
+import { ListSkeleton } from '@/components/molecules/skeleton';
 
 export const BizSessionsDataTable = () => {
   const [rowSelection, setRowSelection] = useState({});
   const [columnVisibility, setColumnVisibility] = useState<VisibilityState>({});
   const [columnFilters, setColumnFilters] = useState<ColumnFiltersState>([]);
   const [sorting, setSorting] = useState<SortingState>([]);
-  const { setPagination, pagination, pageCount, bizSessions, refetch } = useBizSessionContext();
+  const { setPagination, pagination, pageCount, bizSessions, refetch, loading } =
+    useBizSessionContext();
 
   const table = useReactTable({
     data: bizSessions,
@@ -57,6 +66,16 @@ export const BizSessionsDataTable = () => {
     getFacetedUniqueValues: getFacetedUniqueValues(),
   });
 
+  // Show loading skeleton when data is loading
+  if (loading) {
+    return (
+      <div className="space-y-4">
+        <ListSkeleton length={pagination.pageSize} />
+        <DataTablePagination table={table} />
+      </div>
+    );
+  }
+
   return (
     <div className="space-y-4">
       <div className="rounded-md border-none">
@@ -81,8 +100,8 @@ export const BizSessionsDataTable = () => {
             {table.getRowModel().rows?.length ? (
               table.getRowModel().rows.map((row) => (
                 <TableRow
-                  key={row.id}
-                  className=" h-10"
+                  key={row.id || `row-${Math.random()}`}
+                  className="h-10"
                   onClick={() => {
                     // editHandler(
                     //   row.getValue("environmentId"),
@@ -92,11 +111,11 @@ export const BizSessionsDataTable = () => {
                   data-state={row.getIsSelected() && 'selected'}
                 >
                   {row.getVisibleCells().map((cell) => (
-                    <TableCell key={cell.id}>
+                    <TableCell key={cell.id || `cell-${Math.random()}`}>
                       {flexRender(cell.column.columnDef.cell, cell.getContext())}
                     </TableCell>
                   ))}
-                  <TableCell>
+                  <TableCell key={`action-${row.id || Math.random()}`}>
                     <SessionActionDropdownMenu
                       session={row.original}
                       onDeleteSuccess={() => {
@@ -117,7 +136,7 @@ export const BizSessionsDataTable = () => {
                 </TableRow>
               ))
             ) : (
-              <TableRow>
+              <TableRow key="no-results">
                 <TableCell colSpan={columns.length} className="h-24 text-center">
                   No results.
                 </TableCell>

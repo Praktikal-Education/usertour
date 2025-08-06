@@ -1,11 +1,12 @@
 import autoBind from '../utils/auto-bind';
+import isEqual from 'fast-deep-equal';
 
 /**
  * A generic store class that manages state and notifies subscribers of changes
  */
 export class ExternalStore<T> {
   // Stores the current state
-  private data: T;
+  private data: T | undefined;
   // Set of subscriber callback functions
   private listeners: Set<() => void>;
 
@@ -13,7 +14,7 @@ export class ExternalStore<T> {
    * Creates a new store instance with initial data
    * @param initial The initial state value
    */
-  constructor(initial: T) {
+  constructor(initial: T | undefined) {
     this.listeners = new Set();
     this.data = initial;
     autoBind(this);
@@ -21,20 +22,31 @@ export class ExternalStore<T> {
 
   /**
    * Replaces the entire state with new data
+   * Only emits change if the data has actually changed
    * @param newData New state to set
    */
-  public setData(newData: T): void {
-    this.data = newData;
-    this.emitChange();
+  public setData(newData: T | undefined): void {
+    // Only update and emit if data has actually changed
+    if (!isEqual(this.data, newData)) {
+      this.data = newData;
+      this.emitChange();
+    }
   }
 
   /**
    * Updates a portion of the state by merging partial data
+   * Only emits change if the data has actually changed
    * @param partialData Partial state to merge with current state
    */
   public update(partialData: Partial<T>): void {
-    this.data = { ...this.data, ...partialData };
-    this.emitChange();
+    if (this.data) {
+      const newData = { ...this.data, ...partialData };
+      // Only update and emit if data has actually changed
+      if (!isEqual(this.data, newData)) {
+        this.data = newData;
+        this.emitChange();
+      }
+    }
   }
 
   /**
@@ -51,7 +63,7 @@ export class ExternalStore<T> {
    * Returns the current state
    * @returns Current state value
    */
-  public getSnapshot(): T {
+  public getSnapshot(): T | undefined {
     return this.data;
   }
 

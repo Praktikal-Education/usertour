@@ -1,7 +1,7 @@
-import { TextFillIcon } from '@usertour-ui/icons';
-import { useEffect, useState } from 'react';
-import { getTextFillError } from '@usertour-ui/shared-utils';
-import { ElementSelectorPropsData } from '@usertour-ui/types';
+import { TextFillIcon } from '@usertour-packages/icons';
+import { useCallback, useEffect, useState } from 'react';
+import { getTextFillError } from '@usertour/helpers';
+import { ElementSelectorPropsData } from '@usertour/types';
 import { useRulesContext } from './rules-context';
 import { useRulesGroupContext } from '../contexts/rules-group-context';
 import { ElementSelector } from '../selector/element-selector';
@@ -38,17 +38,38 @@ export const RulesUserFills = (props: RulesUserFillsProps) => {
   const { currentContent, token, onElementChange, disabled } = useRulesContext();
 
   useEffect(() => {
-    if (open) {
-      return;
-    }
     const updates = {
       elementData,
     };
     const { showError, errorInfo } = getTextFillError(updates);
-    setOpenError(showError);
-    setErrorInfo(errorInfo);
-    updateConditionData(index, updates);
-  }, [elementData, open]);
+    if (showError && !open) {
+      setOpenError(showError);
+      setErrorInfo(errorInfo);
+      return;
+    }
+  }, [elementData, open, setErrorInfo, setOpenError]);
+
+  const handleOnOpenChange = useCallback(
+    (open: boolean) => {
+      setOpen(open);
+      if (open) {
+        setErrorInfo('');
+        setOpenError(false);
+        return;
+      }
+      const updates = {
+        elementData,
+      };
+      const { showError, errorInfo } = getTextFillError(updates);
+      if (showError) {
+        setOpenError(showError);
+        setErrorInfo(errorInfo);
+        return;
+      }
+      updateConditionData(index, updates);
+    },
+    [elementData, index, updateConditionData, setErrorInfo, setOpenError],
+  );
 
   return (
     <RulesError open={openError}>
@@ -59,7 +80,7 @@ export const RulesUserFills = (props: RulesUserFillsProps) => {
             <RulesConditionIcon>
               <TextFillIcon width={16} height={16} />
             </RulesConditionIcon>
-            <RulesPopover onOpenChange={setOpen} open={open}>
+            <RulesPopover onOpenChange={handleOnOpenChange} open={open}>
               <RulesPopoverTrigger className="space-y-1">
                 <div className="grow pr-6 text-sm text-wrap break-all">
                   User fills in this input{' '}

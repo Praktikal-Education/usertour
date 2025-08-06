@@ -1,10 +1,15 @@
 import { CompanyListProvider } from '@/contexts/company-list-context';
 import { useSegmentListContext } from '@/contexts/segment-list-context';
 import { DotsVerticalIcon } from '@radix-ui/react-icons';
-import { Button } from '@usertour-ui/button';
-import { EditIcon } from '@usertour-ui/icons';
-import { Separator } from '@usertour-ui/separator';
-import { Tooltip, TooltipContent, TooltipProvider, TooltipTrigger } from '@usertour-ui/tooltip';
+import { Button } from '@usertour-packages/button';
+import { EditIcon } from '@usertour-packages/icons';
+import { Separator } from '@usertour-packages/separator';
+import {
+  Tooltip,
+  TooltipContent,
+  TooltipProvider,
+  TooltipTrigger,
+} from '@usertour-packages/tooltip';
 import { useState } from 'react';
 import { useNavigate } from 'react-router-dom';
 import { DataTable } from './data-table';
@@ -12,10 +17,9 @@ import { UserEditDropdownMenu } from './edit-dropmenu';
 import { UserSegmentEditForm } from './edit-form';
 import { UserSegmentFilterSave } from './filter-save';
 import { useAppContext } from '@/contexts/app-context';
-export function CompanyListContent(props: {
-  environmentId: string | undefined;
-}) {
-  const { environmentId } = props;
+
+// Inner component that uses the context
+function CompanyListContentInner({ environmentId }: { environmentId: string | undefined }) {
   const [open, setOpen] = useState(false);
   const { currentSegment, refetch } = useSegmentListContext();
   const navigate = useNavigate();
@@ -27,7 +31,7 @@ export function CompanyListContent(props: {
   };
 
   return (
-    <CompanyListProvider environmentId={environmentId}>
+    <>
       <div className="flex flex-col flex-shrink min-w-0 px-4 py-6 lg:px-8 grow">
         <div className="flex items-center justify-between">
           <div className="space-y-1 flex flex-row items-center relative">
@@ -77,6 +81,18 @@ export function CompanyListContent(props: {
         )}
       </div>
       <UserSegmentEditForm isOpen={open} onClose={handleOnClose} segment={currentSegment} />
+    </>
+  );
+}
+
+export function CompanyListContent(props: {
+  environmentId: string | undefined;
+}) {
+  const { environmentId } = props;
+
+  return (
+    <CompanyListProvider environmentId={environmentId}>
+      <CompanyListContentInner environmentId={environmentId} />
     </CompanyListProvider>
   );
 }

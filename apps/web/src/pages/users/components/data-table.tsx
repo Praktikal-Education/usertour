@@ -16,16 +16,23 @@ import {
   useReactTable,
 } from '@tanstack/react-table';
 import { ColumnDef } from '@tanstack/react-table';
-import { isUndefined } from '@usertour-ui/shared-utils';
-import { Table, TableBody, TableCell, TableHead, TableHeader, TableRow } from '@usertour-ui/table';
-import { Segment } from '@usertour-ui/types';
+import {
+  Table,
+  TableBody,
+  TableCell,
+  TableHead,
+  TableHeader,
+  TableRow,
+} from '@usertour-packages/table';
+import { Skeleton } from '@usertour-packages/skeleton';
+import { BizUser, Segment } from '@usertour/types';
 import * as React from 'react';
 import { useNavigate } from 'react-router-dom';
 import { columns, columnsSystem } from '../components/columns';
 import { DataTablePagination } from '../components/data-table-pagination';
 import { DataTableToolbar } from '../components/data-table-toolbar';
-import { Flow } from '../data/schema';
 import { DataTableColumnHeader } from './data-table-column-header';
+import { formatAttributeValue } from '@/utils/common';
 
 interface TableProps {
   published: boolean;
@@ -38,7 +45,8 @@ export function DataTable({ segment }: TableProps) {
   const [columnFilters, setColumnFilters] = React.useState<ColumnFiltersState>([]);
   const [sorting, setSorting] = React.useState<SortingState>([]);
   const [customColumns, setCustomColumns] = React.useState<typeof columns>(columns);
-  const { setQuery, setPagination, pagination, pageCount, contents } = useUserListContext();
+  const { setQuery, setPagination, pagination, pageCount, contents, loading, isRefetching } =
+    useUserListContext();
   const { attributeList } = useAttributeListContext();
   const navigate = useNavigate();
 
@@ -49,7 +57,7 @@ export function DataTable({ segment }: TableProps) {
   React.useEffect(() => {
     const attrList = attributeList?.filter((attr) => attr.bizType === 1);
     if (attrList && attrList?.length > 0) {
-      const _customColumns: ColumnDef<Flow>[] = [];
+      const _customColumns: ColumnDef<BizUser>[] = [];
       const _columnVisibility: VisibilityState = {
         environmentId: false,
         id: false,
@@ -58,15 +66,16 @@ export function DataTable({ segment }: TableProps) {
         const displayName = attribute.displayName || attribute.codeName;
         _columnVisibility[attribute.codeName] = !!segment.columns?.[attribute.codeName];
         _customColumns.push({
-          accessorKey: attribute.codeName,
+          accessorFn: (row) => {
+            const data = row.data as any;
+            return data?.[attribute.codeName];
+          },
+          id: attribute.codeName,
           header: ({ column }) => <DataTableColumnHeader column={column} title={displayName} />,
-          cell: ({ row }) => (
-            <div className="px-2">
-              {!isUndefined(row.getValue(attribute.codeName))
-                ? `${row.getValue(attribute.codeName)}`
-                : ''}
-            </div>
-          ),
+          cell: ({ row }) => {
+            const value = row.getValue(attribute.codeName);
+            return <div className="px-2">{formatAttributeValue(value)}</div>;
+          },
           enableSorting: false,
           enableHiding: true,
         });
@@ -82,7 +91,7 @@ export function DataTable({ segment }: TableProps) {
 
   const table = useReactTable({
     data: contents,
-    columns: customColumns,
+    columns: customColumns as ColumnDef<BizUser>[],
     pageCount,
     manualPagination: true,
     state: {
@@ -127,7 +136,18 @@ export function DataTable({ segment }: TableProps) {
             ))}
           </TableHeader>
           <TableBody>
-            {table.getRowModel().rows?.length ? (
+            {loading || isRefetching ? (
+              // Show loading skeleton using Skeleton component
+              Array.from({ length: pagination.pageSize }).map((_, index) => (
+                <TableRow key={`loading-${index}`}>
+                  {customColumns.map((_, colIndex) => (
+                    <TableCell key={`loading-cell-${index}-${colIndex}`} className="h-12">
+                      <Skeleton className="h-4 w-full" />
+                    </TableCell>
+                  ))}
+                </TableRow>
+              ))
+            ) : table.getRowModel().rows?.length ? (
               table.getRowModel().rows.map((row) => (
                 <TableRow
                   key={row.id}

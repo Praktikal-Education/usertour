@@ -1,12 +1,13 @@
 'use client';
 
 import { PlusCircledIcon } from '@radix-ui/react-icons';
-import { Button } from '@usertour-ui/button';
-import { CardContent, CardFooter, CardHeader, CardTitle } from '@usertour-ui/card';
-import { EXTENSION_SELECT } from '@usertour-ui/constants';
-import { Input } from '@usertour-ui/input';
-import { Label } from '@usertour-ui/label';
-import { ScrollArea } from '@usertour-ui/scroll-area';
+import { Button } from '@usertour-packages/button';
+import { CardContent, CardFooter, CardHeader, CardTitle } from '@usertour-packages/card';
+import { EXTENSION_SELECT } from '@usertour-packages/constants';
+import { Input } from '@usertour-packages/input';
+import { Label } from '@usertour-packages/label';
+import { QuestionTooltip } from '@usertour-packages/tooltip';
+import { ScrollArea } from '@usertour-packages/scroll-area';
 import {
   Select,
   SelectContent,
@@ -15,10 +16,10 @@ import {
   SelectPortal,
   SelectTrigger,
   SelectValue,
-} from '@usertour-ui/select';
-import { Switch } from '@usertour-ui/switch';
-import { ChecklistCompletionOrder, ChecklistInitialDisplay } from '@usertour-ui/types';
-import { uuidV4 } from '@usertour-ui/ui-utils';
+} from '@usertour-packages/select';
+import { Switch } from '@usertour-packages/switch';
+import { ChecklistCompletionOrder, ChecklistInitialDisplay } from '@usertour/types';
+import { uuidV4 } from '@usertour/helpers';
 import { useBuilderContext, useChecklistContext } from '../../contexts';
 import { SidebarContainer } from '../sidebar';
 import { SidebarFooter } from '../sidebar/sidebar-footer';
@@ -84,6 +85,10 @@ const ChecklistCoreBody = () => {
           {/* Initial Display Select */}
           <div className={labelStyles}>
             <Label htmlFor="initial-display">Initially show as</Label>
+            <QuestionTooltip>
+              Whether to show the whole checklist (including its tasks) or just the launcher button
+              when the checklist starts.
+            </QuestionTooltip>
           </div>
           <Select
             onValueChange={(value) =>
@@ -135,14 +140,35 @@ const ChecklistCoreBody = () => {
 
           {/* Prevent Dismiss Checklist Switch */}
           <div className={flexBetween}>
-            <Label htmlFor="prevent-dismiss-checklist" className="font-normal">
-              Prevent users from dismissing checklist
-            </Label>
+            <div className={labelStyles}>
+              <Label htmlFor="prevent-dismiss-checklist" className="font-normal">
+                Prevent dismissal
+              </Label>
+              <QuestionTooltip>Prevent users from dismissing the checklist.</QuestionTooltip>
+            </div>
             <Switch
               id="prevent-dismiss-checklist"
               className="data-[state=unchecked]:bg-input"
               checked={localData.preventDismissChecklist}
               onCheckedChange={(value) => updateLocalData({ preventDismissChecklist: value })}
+            />
+          </div>
+
+          {/* Auto-dismiss Checklist Switch */}
+          <div className={flexBetween}>
+            <div className={labelStyles}>
+              <Label htmlFor="auto-dismiss-checklist" className="font-normal">
+                Auto-dismiss checklist
+              </Label>
+              <QuestionTooltip>
+                Automatically dismiss the checklist when all tasks are completed.
+              </QuestionTooltip>
+            </div>
+            <Switch
+              id="auto-dismiss-checklist"
+              className="data-[state=unchecked]:bg-input"
+              checked={localData.autoDismissChecklist}
+              onCheckedChange={(value) => updateLocalData({ autoDismissChecklist: value })}
             />
           </div>
         </div>

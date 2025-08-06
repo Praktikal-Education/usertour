@@ -1,20 +1,23 @@
 import { useContentDetailContext } from '@/contexts/content-detail-context';
 import { useContentVersionListContext } from '@/contexts/content-version-list-context';
 import { DotsHorizontalIcon, ResetIcon } from '@radix-ui/react-icons';
-import { Button } from '@usertour-ui/button';
+import { Button } from '@usertour-packages/button';
 import {
   DropdownMenu,
   DropdownMenuContent,
   DropdownMenuItem,
   DropdownMenuSeparator,
   DropdownMenuTrigger,
-} from '@usertour-ui/dropdown-menu';
-import { PlaneIcon } from '@usertour-ui/icons';
-import { ContentVersion } from '@usertour-ui/types';
+} from '@usertour-packages/dropdown-menu';
+import { PlaneIcon } from '@usertour-packages/icons';
+import { ContentVersion } from '@usertour/types';
 import { useState } from 'react';
 import { ContentPublishForm } from '../shared/content-publish-form';
 import { ContentRestoreForm } from '../shared/content-restore-form';
 import { useAppContext } from '@/contexts/app-context';
+import { isPublishedInAllEnvironments } from '@usertour/helpers';
+import { useEnvironmentListContext } from '@/contexts/environment-list-context';
+
 type ContentVersionActionProps = {
   version: ContentVersion;
 };
@@ -26,6 +29,9 @@ export const ContentVersionAction = (props: ContentVersionActionProps) => {
   const { refetch: refetchVersionList } = useContentVersionListContext();
   const [openPublish, setOpenPublish] = useState(false);
   const [openRetore, setOpenRestore] = useState(false);
+  const { environmentList } = useEnvironmentListContext();
+
+  const isDisabledPublish = isPublishedInAllEnvironments(content, environmentList, version);
 
   return (
     <>
@@ -41,7 +47,7 @@ export const ContentVersionAction = (props: ContentVersionActionProps) => {
         </DropdownMenuTrigger>
         <DropdownMenuContent align="end" className="w-[100px]">
           <DropdownMenuItem
-            disabled={content?.publishedVersionId === version.id}
+            disabled={isDisabledPublish}
             onClick={() => {
               setOpenPublish(true);
             }}
@@ -67,19 +73,20 @@ export const ContentVersionAction = (props: ContentVersionActionProps) => {
         versionId={version.id}
         open={openPublish}
         onOpenChange={setOpenPublish}
-        onSubmit={() => {
+        onSubmit={async () => {
+          await refetch();
+          await refetchVersionList();
           setOpenPublish(false);
-          refetch();
         }}
       />
       <ContentRestoreForm
         version={version}
         open={openRetore}
         onOpenChange={setOpenRestore}
-        onSubmit={() => {
+        onSubmit={async () => {
+          await refetch();
+          await refetchVersionList();
           setOpenRestore(false);
-          refetch();
-          refetchVersionList();
         }}
       />
     </>

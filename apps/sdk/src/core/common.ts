@@ -1,38 +1,18 @@
-import { AssetAttributes } from '@usertour-ui/frame';
-import { BizUserInfo, PlanType, Theme } from '@usertour-ui/types';
-import { uuidV4 } from '@usertour-ui/ui-utils';
-import { ChecklistStore, LauncherStore, TourStore } from '../types/store';
+import { AssetAttributes } from '@usertour-packages/frame';
+import { BizUserInfo, ThemeTypesSetting } from '@usertour/types';
+import { uuidV4 } from '@usertour/helpers';
 import { getUserTourCss } from '../utils/env';
 
-const DEFAULT_Z_INDEX = 11111;
-export const SESSION_TIMEOUT_HOURS = 24;
+export const SESSION_TIMEOUT_HOURS = 24 * 2; // 2 days
+export const DEFAULT_TARGET_MISSING_SECONDS = 6;
 
-const DEFAULT_STORE_VALUES = {
-  openState: false,
-  globalStyle: '',
-  assets: [],
-  userInfo: undefined,
-  sdkConfig: {
-    removeBranding: false,
-    planType: PlanType.HOBBY,
-  },
-};
-
-// Update default stores
-const defaultTourStore: TourStore = {
-  ...DEFAULT_STORE_VALUES,
-  zIndex: DEFAULT_Z_INDEX,
-  currentStep: undefined,
-  progress: 0,
-};
-
-const getAssets = (theme: Theme): AssetAttributes[] => {
-  const { fontFamily } = theme.settings.font;
+const getAssets = (themeSettings: ThemeTypesSetting): AssetAttributes[] => {
+  const { fontFamily } = themeSettings.font;
 
   const assets: AssetAttributes[] = [
     {
       tagName: 'link',
-      isCheckLoaded: false,
+      isCheckLoaded: true,
       href: getUserTourCss(),
       rel: 'stylesheet',
       type: 'text/css',
@@ -72,18 +52,4 @@ const createMockUser = (userId?: string): BizUserInfo => {
   };
 };
 
-const defaultChecklistStore: ChecklistStore = {
-  ...DEFAULT_STORE_VALUES,
-  zIndex: 1000000,
-  content: undefined,
-  theme: undefined,
-};
-
-const defaultLauncherStore: LauncherStore = {
-  ...DEFAULT_STORE_VALUES,
-  zIndex: 11111,
-  content: undefined,
-  triggerRef: undefined,
-};
-
-export { defaultTourStore, defaultChecklistStore, defaultLauncherStore, getAssets, createMockUser };
+export { getAssets, createMockUser };

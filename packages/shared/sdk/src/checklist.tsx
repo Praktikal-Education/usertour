@@ -1,11 +1,9 @@
 import {
   ChecklistData,
-  ChecklistInitialDisplay,
   ChecklistItemType,
   ModalPosition,
-  Theme,
   ThemeTypesSetting,
-} from '@usertour-ui/types';
+} from '@usertour/types';
 import {
   forwardRef,
   useState,
@@ -25,26 +23,38 @@ import {
   PopperContentFrame,
   PopperContentProps,
 } from './popper';
-import { CheckmarkIcon, DropDownIcon } from '@usertour-ui/icons';
-import { useComposedRefs } from '@usertour-ui/react-compose-refs';
-import { useThemeStyles } from './hook';
-import { computePositionStyle } from './position';
-import { AssetAttributes, Frame, useFrame } from '@usertour-ui/frame';
-import { cn } from '@usertour-ui/ui-utils';
-import { Button } from '@usertour-ui/button';
-import { canCompleteChecklistItem } from './utils';
+import { CheckmarkIcon, DropDownIcon } from '@usertour-packages/icons';
+import { useComposedRefs } from '@usertour-packages/react-compose-refs';
+import { computePositionStyle } from './utils/position';
+import { AssetAttributes, Frame, useFrame } from '@usertour-packages/frame';
+import { cn } from '@usertour/helpers';
+import { Button } from '@usertour-packages/button';
+import { useSize } from '@usertour-packages/react-use-size';
+import {
+  canCompleteChecklistItem,
+  checklistIsCompleted,
+  checklistProgress,
+  checklistUnCompletedItemsCount,
+} from './utils/content';
+import { useSettingsStyles } from './hooks/use-settings-styles';
 
 interface ChecklistRootContextValue {
   globalStyle: string;
   themeSetting?: ThemeTypesSetting;
   data: ChecklistData;
   isOpen: boolean;
-  setIsOpen: (isOpen: boolean) => void;
+  isAllCompleted: boolean;
+  unCompletedItemsCount: number;
+  progress: number;
   updateItemStatus: (itemId: string, isCompleted: boolean) => void;
   showDismissConfirm: boolean;
   setShowDismissConfirm: (showDismissConfirm: boolean) => void;
   onDismiss?: () => Promise<void>;
-  onOpenChange?: (open: boolean) => void;
+  handleExpandedChange?: (expanded: boolean) => Promise<void>;
+  // Animation state tracking
+  pendingAnimationItems: Set<string>;
+  removePendingAnimation: (itemId: string) => void;
+  zIndex: number;
 }
 
 const ChecklistRootContext = createContext<ChecklistRootContextValue | null>(null);
@@ -59,27 +69,66 @@ const useChecklistRootContext = () => {
 
 interface ChecklistRootProps {
   children: React.ReactNode;
-  theme: Theme;
+  themeSettings: ThemeTypesSetting;
   data: ChecklistData;
   defaultOpen?: boolean;
+  expanded?: boolean;
   onDismiss?: () => Promise<void>;
-  onOpenChange?: (open: boolean) => void;
+  onExpandedChange?: (expanded: boolean) => void;
+  reportExpandedChangeEvent?: (expanded: boolean) => Promise<void>;
+  zIndex: number;
 }
 
 const ChecklistRoot = (props: ChecklistRootProps) => {
-  const { children, theme, data: initialData, defaultOpen = true, onDismiss, onOpenChange } = props;
-  const { globalStyle, themeSetting } = useThemeStyles(theme);
-  const [isOpen, setIsOpen] = useState(defaultOpen);
+  const {
+    children,
+    data: initialData,
+    defaultOpen = true,
+    expanded,
+    onDismiss,
+    onExpandedChange,
+    reportExpandedChangeEvent,
+    zIndex,
+    themeSettings,
+  } = props;
+  const { globalStyle, themeSetting } = useSettingsStyles(themeSettings);
   const [data, setData] = useState(initialData);
   const [showDismissConfirm, setShowDismissConfirm] = useState(false);
+  const [pendingAnimationItems, setPendingAnimationItems] = useState<Set<string>>(new Set());
+  const [prevData, setPrevData] = useState(initialData);
+
+  // Use expanded from store if provided, otherwise use local state
+  const isOpen = expanded !== undefined ? expanded : defaultOpen;
+  const isAllCompleted = checklistIsCompleted(data.items);
+  const unCompletedItemsCount = checklistUnCompletedItemsCount(data.items);
+  const progress = checklistProgress(data.items);
 
   useEffect(() => {
     setData(initialData);
   }, [initialData]);
 
+  //manual control open state
+  const handleExpandedChange = useCallback(
+    async (open: boolean) => {
+      onExpandedChange?.(open);
+      await reportExpandedChangeEvent?.(open);
+    },
+    [reportExpandedChangeEvent],
+  );
+
+  // Track completion changes and add to pending animations if checklist is closed
   useEffect(() => {
-    setIsOpen(data.initialDisplay === ChecklistInitialDisplay.EXPANDED);
-  }, [data.initialDisplay]);
+    if (!isOpen) {
+      // Check for newly completed items
+      for (const item of data.items) {
+        const prevItem = prevData.items.find((prevItem) => prevItem.id === item.id);
+        if (item.isCompleted && prevItem && !prevItem.isCompleted) {
+          setPendingAnimationItems((prev) => new Set(prev).add(item.id));
+        }
+      }
+    }
+    setPrevData(data);
+  }, [data, isOpen]);
 
   const updateItemStatus = (itemId: string, isCompleted: boolean) => {
     setData((prevData) => ({
@@ -88,6 +137,14 @@ const ChecklistRoot = (props: ChecklistRootProps) => {
     }));
   };
 
+  const removePendingAnimation = useCallback((itemId: string) => {
+    setPendingAnimationItems((prev) => {
+      const newSet = new Set(prev);
+      newSet.delete(itemId);
+      return newSet;
+    });
+  }, []);
+
   return (
     <ChecklistRootContext.Provider
       value={{
@@ -95,12 +152,17 @@ const ChecklistRoot = (props: ChecklistRootProps) => {
         themeSetting,
         data,
         isOpen,
-        setIsOpen,
+        isAllCompleted,
+        unCompletedItemsCount,
+        progress,
         updateItemStatus,
         showDismissConfirm,
         setShowDismissConfirm,
         onDismiss,
-        onOpenChange,
+        handleExpandedChange,
+        pendingAnimationItems,
+        removePendingAnimation,
+        zIndex,
       }}
     >
       {children}
@@ -112,22 +174,23 @@ ChecklistRoot.displayName = 'ChecklistRoot';
 
 interface ChecklistCheckedProps {
   isChecked: boolean;
+  isShowAnimation: boolean;
 }
 
-const EmptyCircle = () => {
-  return <div className="w-5 h-5 bg-gray-200 rounded-full" />;
-};
-
 const ChecklistChecked = forwardRef<HTMLSpanElement, ChecklistCheckedProps>((props, ref) => {
-  const { isChecked } = props;
+  const { isChecked, isShowAnimation } = props;
   return (
     <span
       ref={ref}
-      className={`flex-none w-8 h-8 ${
-        isChecked ? 'bg-sdk-checklist-checkmark' : 'bg-gray-200'
-      } border-2 border-transparent rounded-full flex justify-center items-center mr-3 text-sm text-white `}
+      className={cn(
+        'flex-none w-8 h-8 border-2 border-transparent rounded-full flex justify-center items-center mr-3 text-sm text-white',
+        isChecked
+          ? 'bg-sdk-checklist-checkmark'
+          : 'border border-sdk-foreground/25 bg-sdk-background',
+        isShowAnimation ? 'animate-pop-scale' : '',
+      )}
     >
-      {isChecked ? <CheckmarkIcon className="w-5 h-5 stroke-white" /> : <EmptyCircle />}
+      {isChecked && <CheckmarkIcon className="w-5 h-5 stroke-white" />}
     </span>
   );
 });
@@ -136,22 +199,20 @@ ChecklistChecked.displayName = 'ChecklistChecked';
 
 const ChecklistProgress = memo(
   forwardRef<HTMLDivElement, { width?: number }>(({ width }, ref) => {
-    const { data } = useChecklistRootContext();
-    const progress = useMemo(() => {
-      const completedCount = data.items.filter((item) => item.isCompleted).length;
-      return width ?? Math.round((completedCount / data.items.length) * 100);
-    }, [data.items, width]);
+    const { progress } = useChecklistRootContext();
+
+    const finalProgress = width ?? progress ?? 0;
 
     return (
       <div className="w-full bg-sdk-foreground rounded-full my-3" ref={ref}>
         <div
           className={cn(
-            'text-sdk-base font-medium text-center p-1 leading-none rounded-full',
-            progress > 0 && 'bg-sdk-progress',
+            'text-sdk-background font-medium p-1 px-2 leading-none rounded-full text-left',
+            finalProgress > 0 && 'bg-sdk-progress',
           )}
-          style={{ width: `${progress}%` }}
+          style={{ width: `${finalProgress}%` }}
         >
-          {progress}%
+          {finalProgress}%
         </div>
       </div>
     );
@@ -165,22 +226,51 @@ interface ChecklistLauncherContentProps {
   height?: string | number;
   onClick?: () => void;
   number?: number;
+  isCompleted?: boolean;
+  onSizeChange?: (rect: { width: number; height: number }) => void;
 }
 const ChecklistLauncherContent = forwardRef<HTMLDivElement, ChecklistLauncherContentProps>(
   (props, ref) => {
-    const { buttonText, height, onClick, number = 1 } = props;
+    const { buttonText, height, onClick, number = 1, isCompleted, onSizeChange } = props;
+    const paddingLeft = height ? `${Number(height) / 2}px` : undefined;
+    const paddingRight = height ? `${Number(height) / 2}px` : undefined;
+
+    const [contentRef, setContentRef] = useState<HTMLDivElement | null>(null);
+    const rect = useSize(contentRef);
+
+    useEffect(() => {
+      if (rect) {
+        onSizeChange?.(rect);
+      }
+    }, [rect]);
+
     return (
       <div
         ref={ref}
-        style={{ height }}
+        style={{
+          height,
+        }}
         className="rounded-sdk-checklist-trigger h-full w-full flex bg-sdk-checklist-trigger-background cursor-pointer items-center justify-center hover:bg-sdk-checklist-trigger-hover-background"
         onClick={onClick}
       >
-        <div className="max-w-24 overflow-hidden	text-sdk-checklist-trigger-font h-6 font-sdk-checklist-trigger text-sdk-base flex items-center justify-center">
-          {buttonText}
-        </div>
-        <div className="rounded-full w-6 h-6 text-sdk-base bg-sdk-checklist-trigger-counter-background text-sdk-checklist-trigger-counter-font ml-1 flex items-center justify-center">
-          {number}
+        <div
+          ref={setContentRef}
+          className="flex whitespace-nowrap	"
+          style={{
+            paddingLeft,
+            paddingRight,
+          }}
+        >
+          <div className="overflow-hidden	text-sdk-checklist-trigger-font h-6 font-sdk-checklist-trigger text-sdk-base flex items-center justify-center">
+            {buttonText}
+          </div>
+          <div className="rounded-full w-6 h-6 text-sdk-base bg-sdk-checklist-trigger-counter-background text-sdk-checklist-trigger-counter-font ml-1 flex items-center justify-center">
+            {isCompleted ? (
+              <CheckmarkIcon className="w-5 h-5 stroke-sdk-checklist-trigger-counter-font" />
+            ) : (
+              number
+            )}
+          </div>
         </div>
       </div>
     );
@@ -191,29 +281,31 @@ ChecklistLauncherContent.displayName = 'ChecklistLauncherContent';
 
 const ChecklistLauncher = forwardRef<HTMLDivElement, { onClick?: () => void }>((props, ref) => {
   const { onClick } = props;
-  const { themeSetting, data } = useChecklistRootContext();
+  const { themeSetting, data, zIndex, isAllCompleted, unCompletedItemsCount } =
+    useChecklistRootContext();
   const style = computePositionStyle(
     themeSetting?.checklistLauncher.placement.position as ModalPosition,
     themeSetting?.checklistLauncher.placement.positionOffsetX ?? 0,
     themeSetting?.checklistLauncher.placement.positionOffsetY ?? 0,
   );
+
   return (
     <div
       ref={ref}
       className="usertour-widget-checklist-launcher usertour-widget-checklist-launcher--position-fixed"
       style={{
-        zIndex: themeSetting?.checklist.zIndex,
+        zIndex,
         ...style,
         height: themeSetting?.checklistLauncher.height,
         borderRadius: themeSetting?.checklistLauncher.borderRadius,
-        width: '174px',
       }}
     >
       <ChecklistLauncherContent
         buttonText={data.buttonText}
         height={themeSetting?.checklistLauncher.height}
         onClick={onClick}
-        number={data.items.filter((item) => !item.isCompleted).length}
+        number={unCompletedItemsCount}
+        isCompleted={isAllCompleted}
       />
     </div>
   );
@@ -242,38 +334,52 @@ ChecklistContainer.displayName = 'ChecklistContainer';
 
 const ChecklistPopper = forwardRef<HTMLDivElement, Omit<PopperProps, 'globalStyle'>>(
   (props, ref) => {
-    const { children } = props;
-    const { globalStyle, isOpen, setIsOpen, themeSetting, onOpenChange } =
-      useChecklistRootContext();
+    const { children, ...popperProps } = props;
+    const { globalStyle, isOpen, themeSetting, handleExpandedChange } = useChecklistRootContext();
 
-    const handleOpenChange = () => {
-      setIsOpen(true);
-      onOpenChange?.(true);
-    };
+    // Memoize the launcher click handler to prevent unnecessary re-renders
+    const handleLauncherClick = useCallback(async () => {
+      await handleExpandedChange?.(true);
+    }, [handleExpandedChange]);
 
+    // Memoize the modal content props to prevent unnecessary re-renders
+    const modalContentProps = useMemo(
+      () => ({
+        position: themeSetting?.checklist.placement.position as ModalPosition,
+        positionOffsetX: themeSetting?.checklist.placement.positionOffsetX,
+        positionOffsetY: themeSetting?.checklist.placement.positionOffsetY,
+        enabledBackdrop: false,
+        width: `${themeSetting?.checklist.width}px`,
+      }),
+      [
+        themeSetting?.checklist.placement.position,
+        themeSetting?.checklist.placement.positionOffsetX,
+        themeSetting?.checklist.placement.positionOffsetY,
+        themeSetting?.checklist.width,
+      ],
+    );
+
+    // Memoize the popper props to prevent unnecessary re-renders
+    const optimizedPopperProps = useMemo(
+      () => ({
+        ...popperProps,
+        triggerRef: undefined,
+        open: isOpen,
+        globalStyle,
+      }),
+      [popperProps, isOpen, globalStyle],
+    );
+
+    // Early return for closed state
+    if (!isOpen) {
+      return <ChecklistLauncher onClick={handleLauncherClick} />;
+    }
+
+    // Main content when open
     return (
-      <>
-        {isOpen && (
-          <Popper
-            triggerRef={undefined}
-            open={isOpen}
-            ref={ref}
-            {...props}
-            globalStyle={globalStyle}
-          >
-            <PopperModalContentPotal
-              position={themeSetting?.checklist.placement.position as ModalPosition}
-              positionOffsetX={themeSetting?.checklist.placement.positionOffsetX}
-              positionOffsetY={themeSetting?.checklist.placement.positionOffsetY}
-              enabledBackdrop={false}
-              width={`${themeSetting?.checklist.width}px`}
-            >
-              {children}
-            </PopperModalContentPotal>
-          </Popper>
-        )}
-        {!isOpen && <ChecklistLauncher onClick={handleOpenChange} />}
-      </>
+      <Popper ref={ref} {...optimizedPopperProps}>
+        <PopperModalContentPotal {...modalContentProps}>{children}</PopperModalContentPotal>
+      </Popper>
     );
   },
 );
@@ -282,53 +388,74 @@ ChecklistPopper.displayName = 'ChecklistPopper';
 
 const ChecklistPopperUseIframe = forwardRef<HTMLDivElement, Omit<PopperProps, 'globalStyle'>>(
   (props, ref) => {
-    const { children, assets } = props;
+    const { children, assets, ...popperProps } = props;
     const { globalStyle, isOpen, themeSetting } = useChecklistRootContext();
+
+    // Memoize the modal content props to prevent unnecessary re-renders
+    const modalContentProps = useMemo(
+      () => ({
+        position: themeSetting?.checklist.placement.position as ModalPosition,
+        positionOffsetX: themeSetting?.checklist.placement.positionOffsetX,
+        positionOffsetY: themeSetting?.checklist.placement.positionOffsetY,
+        enabledBackdrop: false,
+        width: `${themeSetting?.checklist.width}px`,
+      }),
+      [
+        themeSetting?.checklist.placement.position,
+        themeSetting?.checklist.placement.positionOffsetX,
+        themeSetting?.checklist.placement.positionOffsetY,
+        themeSetting?.checklist.width,
+      ],
+    );
+
+    // Memoize the popper props to prevent unnecessary re-renders
+    const optimizedPopperProps = useMemo(
+      () => ({
+        ...popperProps,
+        triggerRef: undefined,
+        open: isOpen,
+        globalStyle,
+        assets,
+      }),
+      [popperProps, isOpen, globalStyle, assets],
+    );
+
+    // Early return for closed state
+    if (!isOpen) {
+      return <ChecklistLauncherFrame assets={assets} />;
+    }
+
+    // Main content when open
     return (
-      <>
-        {isOpen && (
-          <Popper
-            triggerRef={undefined}
-            open={isOpen}
-            ref={ref}
-            {...props}
-            globalStyle={globalStyle}
-          >
-            <PopperModalContentPotal
-              position={themeSetting?.checklist.placement.position as ModalPosition}
-              positionOffsetX={themeSetting?.checklist.placement.positionOffsetX}
-              positionOffsetY={themeSetting?.checklist.placement.positionOffsetY}
-              enabledBackdrop={false}
-              width={`${themeSetting?.checklist.width}px`}
-            >
-              <PopperContentFrame ref={ref} {...props}>
-                {children}
-              </PopperContentFrame>
-            </PopperModalContentPotal>
-          </Popper>
-        )}
-        {!isOpen && (
-          <ChecklistLauncherFrame assets={assets} zIndex={themeSetting?.checklist.zIndex ?? 1111} />
-        )}
-      </>
+      <Popper ref={ref} {...optimizedPopperProps} isIframeMode={true}>
+        <PopperModalContentPotal {...modalContentProps}>
+          <PopperContentFrame ref={ref} {...props}>
+            {children}
+          </PopperContentFrame>
+        </PopperModalContentPotal>
+      </Popper>
     );
   },
 );
 
 interface ChecklistLauncherFrameProps {
   assets: AssetAttributes[] | undefined;
-  zIndex: number;
 }
 const ChecklistLauncherFrame = forwardRef<HTMLIFrameElement, ChecklistLauncherFrameProps>(
   (props, ref) => {
     const { assets } = props;
-    const { globalStyle, themeSetting } = useChecklistRootContext();
+    const { globalStyle, themeSetting, zIndex } = useChecklistRootContext();
+    const [launcherRect, setLauncherRect] = useState<{ width: number; height: number } | null>(
+      null,
+    );
 
     const style = computePositionStyle(
       themeSetting?.checklistLauncher.placement.position as ModalPosition,
       themeSetting?.checklistLauncher.placement.positionOffsetX ?? 0,
       themeSetting?.checklistLauncher.placement.positionOffsetY ?? 0,
     );
+
+    const width = launcherRect?.width ? `${launcherRect?.width}px` : undefined;
 
     return (
       <>
@@ -337,14 +464,14 @@ const ChecklistLauncherFrame = forwardRef<HTMLIFrameElement, ChecklistLauncherFr
           ref={ref}
           className="usertour-widget-checklist-launcher usertour-widget-checklist-launcher--position-fixed"
           defaultStyle={{
-            zIndex: themeSetting?.checklist.zIndex,
+            zIndex,
             ...style,
             height: themeSetting?.checklistLauncher.height,
             borderRadius: themeSetting?.checklistLauncher.borderRadius,
-            width: '174px',
+            width,
           }}
         >
-          <ChecklistLauncherInFrame globalStyle={globalStyle} />
+          <ChecklistLauncherInFrame globalStyle={globalStyle} onSizeChange={setLauncherRect} />
         </Frame>
       </>
     );
@@ -354,9 +481,10 @@ const ChecklistLauncherFrame = forwardRef<HTMLIFrameElement, ChecklistLauncherFr
 ChecklistLauncherFrame.displayName = 'ChecklistLauncherFrame';
 
 const ChecklistLauncherInFrame = forwardRef<HTMLDivElement, PopperContentProps>((props, _) => {
-  const { globalStyle } = props;
+  const { globalStyle, onSizeChange } = props;
+  const { data, themeSetting, handleExpandedChange, isAllCompleted, unCompletedItemsCount } =
+    useChecklistRootContext();
   const { document } = useFrame();
-  const { data, setIsOpen, themeSetting, onOpenChange } = useChecklistRootContext();
 
   useEffect(() => {
     if (globalStyle) {
@@ -365,65 +493,72 @@ const ChecklistLauncherInFrame = forwardRef<HTMLDivElement, PopperContentProps>(
     }
   }, [globalStyle]);
 
-  const handleOnOpenChange = () => {
-    setIsOpen(true);
-    onOpenChange?.(true);
-  };
-
   return (
     <ChecklistLauncherContent
       buttonText={data.buttonText}
       height={themeSetting?.checklistLauncher.height}
-      number={data.items.filter((item) => !item.isCompleted).length}
-      onClick={handleOnOpenChange}
+      number={unCompletedItemsCount}
+      isCompleted={isAllCompleted}
+      onClick={async () => await handleExpandedChange?.(true)}
+      onSizeChange={onSizeChange}
     />
   );
 });
 
-const ChecklistStaticPopper = forwardRef<HTMLDivElement, Omit<PopperProps, 'globalStyle'>>(
-  (props, ref) => {
-    const { children } = props;
-    const { globalStyle } = useChecklistRootContext();
-    return (
-      <>
-        <Popper
-          triggerRef={undefined}
-          open={true}
-          ref={ref}
-          globalStyle={globalStyle}
-          zIndex={1111}
-        >
-          <PopperStaticContent
-            ref={ref}
-            globalStyle={globalStyle}
-            height={'auto'}
-            width={`${360}px`}
-            showArrow={false}
-          >
-            {children}
-          </PopperStaticContent>
-        </Popper>
-      </>
-    );
-  },
-);
+const ChecklistStaticPopper = forwardRef<
+  HTMLDivElement,
+  Omit<PopperProps, 'globalStyle' | 'zIndex'>
+>((props, ref) => {
+  const { children, ...popperProps } = props;
+  const { globalStyle, zIndex } = useChecklistRootContext();
+
+  // Memoize the popper props to prevent unnecessary re-renders
+  const optimizedPopperProps = useMemo(
+    () => ({
+      ...popperProps,
+      triggerRef: undefined,
+      open: true,
+      globalStyle,
+      zIndex,
+    }),
+    [popperProps, globalStyle, zIndex],
+  );
+
+  // Memoize the static content props
+  const staticContentProps = useMemo(
+    () => ({
+      ref,
+      globalStyle,
+      height: 'auto',
+      width: '360px',
+      showArrow: false,
+    }),
+    [globalStyle],
+  );
+
+  return (
+    <Popper {...optimizedPopperProps}>
+      <PopperStaticContent {...staticContentProps}>{children}</PopperStaticContent>
+    </Popper>
+  );
+});
 
 ChecklistStaticPopper.displayName = 'ChecklistStaticPopper';
 
 const ChecklistDropdown = forwardRef<HTMLDivElement, React.HTMLAttributes<HTMLDivElement>>(
   (props, ref) => {
-    const { setIsOpen, onOpenChange } = useChecklistRootContext();
-    const handleOnOpenChange = () => {
-      setIsOpen(false);
-      onOpenChange?.(false);
-    };
+    const { handleExpandedChange } = useChecklistRootContext();
     return (
       <div
         className="rounded-full h-[25px] w-[25px] inline-flex items-center justify-center text-sdk-xbutton absolute top-[5px] right-[5px] hover:bg-sdk-primary/40 outline-none cursor-pointer"
         ref={ref}
         {...props}
       >
-        <DropDownIcon height={24} width={24} onClick={handleOnOpenChange} />
+        <DropDownIcon
+          height={24}
+          width={24}
+          onClick={async () => await handleExpandedChange?.(false)}
+        />
       </div>
     );
   },
@@ -437,32 +572,37 @@ interface ChecklistItemsProps {
 }
 const ChecklistItems = forwardRef<HTMLDivElement, ChecklistItemsProps>(
   ({ onClick, disabledUpdate }, ref) => {
-    const { data, updateItemStatus } = useChecklistRootContext();
+    const { data, updateItemStatus, themeSetting } = useChecklistRootContext();
+
+    const textDecoration = themeSetting?.checklist.completedTaskTextDecoration;
 
     const handleItemClick = useCallback(
       (item: ChecklistItemType, index: number) => {
         if (disabledUpdate) {
-          if (onClick) {
-            onClick(item, index);
-          }
+          onClick?.(item, index);
           return;
         }
         if (!item.isCompleted) {
           updateItemStatus(item.id, !item.isCompleted);
-          onClick?.(item, index);
         }
+        onClick?.(item, index);
       },
-      [onClick, updateItemStatus],
+      [onClick, updateItemStatus, disabledUpdate],
     );
 
     return (
-      <div ref={ref} className="flex flex-col space-y-1">
-        {data.items.map(
-          (item, index) =>
-            item.isVisible !== false && (
-              <ChecklistItem key={item.id} item={item} index={index} onClick={handleItemClick} />
-            ),
-        )}
+      <div ref={ref} className="flex flex-col -mx-[24px]">
+        {data.items
+          .filter((item) => item.isVisible !== false)
+          .map((item, index) => (
+            <ChecklistItem
+              key={item.id}
+              item={item}
+              index={index}
+              onClick={handleItemClick}
+              textDecoration={textDecoration}
+            />
+          ))}
       </div>
     );
   },
@@ -477,7 +617,7 @@ const ChecklistDismissConfirm = forwardRef<HTMLDivElement, React.HTMLAttributes<
     return (
       <div ref={ref} {...props} className="flex flex-col space-y-2">
         <div className="text-sdk-base">Dismiss checklist?</div>
-        <div className="flex flex-row space-x-2 items-center justify-center">
+        <div className="flex flex-row space-x-2 items-center justify-center pb-2">
           <Button forSdk onClick={onDismiss}>
             Yes, dismiss
           </Button>
@@ -494,21 +634,33 @@ ChecklistDismissConfirm.displayName = 'ChecklistDismissConfirm';
 
 const ChecklistDismiss = forwardRef<HTMLDivElement, React.HTMLAttributes<HTMLDivElement>>(
   (props, ref) => {
-    const { setShowDismissConfirm, data } = useChecklistRootContext();
+    const { data, onDismiss, setShowDismissConfirm, isAllCompleted } = useChecklistRootContext();
 
-    const baseClassName = cn(
-      'text-right',
-      data.preventDismissChecklist ? 'h-sdk-line-height' : 'cursor-pointer',
+    // Return placeholder if dismiss is prevented
+    if (data.preventDismissChecklist) {
+      return <div className="h-4" ref={ref} {...props} />;
+    }
+
+    const textClassName = cn(
+      'text-right cursor-pointer',
+      isAllCompleted
+        ? 'text-sdk-link hover:text-sdk-link/80 font-sdk-bold'
+        : 'text-sdk-foreground/50 hover:text-sdk-foreground/80',
     );
 
+    const handleDismiss = useCallback(() => {
+      if (isAllCompleted) {
+        onDismiss?.();
+      } else {
+        setShowDismissConfirm(true);
+      }
+    }, [isAllCompleted, onDismiss, setShowDismissConfirm]);
+
     return (
-      <div
-        ref={ref}
-        {...props}
-        className={baseClassName}
-        onClick={data.preventDismissChecklist ? undefined : () => setShowDismissConfirm(true)}
-      >
-        {!data.preventDismissChecklist && 'Dismiss checklist'}
+      <div className="flex justify-end" ref={ref} {...props}>
+        <span className={textClassName} onClick={handleDismiss}>
+          Dismiss checklist
+        </span>
       </div>
     );
   },
@@ -523,7 +675,10 @@ ChecklistPopperContent.displayName = 'ChecklistPopperContent';
 const ChecklistPopperContentBody = (props: { children: React.ReactNode }) => {
   const { children } = props;
   const { showDismissConfirm } = useChecklistRootContext();
-  return <>{showDismissConfirm ? <ChecklistDismissConfirm /> : children}</>;
+  if (showDismissConfirm) {
+    return <ChecklistDismissConfirm />;
+  }
+  return children;
 };
 
 ChecklistPopperContentBody.displayName = 'ChecklistPopperContentBody';
@@ -532,34 +687,91 @@ interface ChecklistItemProps {
   item: ChecklistItemType;
   index: number;
   onClick: (item: ChecklistItemType, index: number) => void;
+  textDecoration?: string;
 }
 
-const ChecklistItem = ({ item, index, onClick }: ChecklistItemProps) => {
-  const { data } = useChecklistRootContext();
+const ChecklistItem = (props: ChecklistItemProps) => {
+  const { item, index, onClick, textDecoration = 'line-through' } = props;
+  const { isOpen, pendingAnimationItems, removePendingAnimation, data } = useChecklistRootContext();
+  const [prevIsCompleted, setPrevIsCompleted] = useState(item.isCompleted);
+  const [shouldShowAnimation, setShouldShowAnimation] = useState(false);
+
+  const isCompleted = useMemo(() => {
+    return item.isCompleted;
+  }, [item.isCompleted]);
+
+  // Handle animation logic
+  useEffect(() => {
+    // Case 1: Item was just completed while checklist is open
+    if (isCompleted && !prevIsCompleted && isOpen) {
+      setShouldShowAnimation(true);
+      const timer = setTimeout(() => {
+        setShouldShowAnimation(false);
+      }, 1000);
+      return () => clearTimeout(timer);
+    }
+
+    // Case 2: Item has pending animation (completed while closed) and checklist is now open
+    if (isOpen && isCompleted && pendingAnimationItems.has(item.id)) {
+      setShouldShowAnimation(true);
+      const timer = setTimeout(() => {
+        removePendingAnimation(item.id);
+        setShouldShowAnimation(false);
+      }, 1000);
+      return () => clearTimeout(timer);
+    }
+
+    // Case 3: External animation control via item.isShowAnimation
+    if (isOpen && isCompleted && item.isShowAnimation) {
+      setShouldShowAnimation(true);
+      const timer = setTimeout(() => {
+        setShouldShowAnimation(false);
+      }, 1000);
+      return () => clearTimeout(timer);
+    }
+
+    setPrevIsCompleted(isCompleted);
+  }, [
+    isCompleted,
+    isOpen,
+    prevIsCompleted,
+    pendingAnimationItems,
+    item.id,
+    removePendingAnimation,
+    item.isShowAnimation,
+  ]);
 
   // Check if this item can be clicked based on completion order
   const isClickable = useMemo(() => {
     return canCompleteChecklistItem(data.completionOrder, data.items, item);
   }, [data.completionOrder, data.items, item]);
 
-  const isCompleted = useMemo(() => {
-    return item.isCompleted;
-  }, [item.isCompleted]);
+  // Reset animation state when item becomes uncompleted
+  useEffect(() => {
+    if (!isCompleted) {
+      setShouldShowAnimation(false);
+    }
+  }, [isCompleted]);
 
   return (
     <div
       className={cn(
-        'flex items-center',
+        'flex items-center cursor-pointer px-[24px] py-3 hover:bg-sdk-foreground/5 transition-colors',
         isClickable ? 'cursor-pointer' : 'cursor-not-allowed opacity-50',
       )}
-      onClick={() => isClickable && onClick(item, index)}
+      onClick={() => (isClickable ? onClick(item, index) : undefined)}
     >
-      <ChecklistChecked isChecked={isCompleted} />
+      <ChecklistChecked isChecked={isCompleted} isShowAnimation={shouldShowAnimation} />
       <div
-        className={cn('grow flex flex-col items-start', isCompleted && 'text-sdk-foreground/60')}
+        className={cn(
+          'grow flex flex-col items-start',
+          isCompleted && `${textDecoration} text-sdk-foreground/60`,
+        )}
       >
-        <span className="text-sdk-base">{item.name}</span>
-        {item.description && <span className="text-sdk-xs leading-3">{item.description}</span>}
+        <span className="text-sdk-base font-sdk-bold">{item.name}</span>
+        {item.description && (
+          <span className="text-sdk-xs opacity-75 leading-3">{item.description}</span>
+        )}
       </div>
     </div>
   );

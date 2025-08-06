@@ -7,17 +7,28 @@ import {
   AdminSidebarHeaderTemplate,
 } from '@/components/templates/admin-sidebar-template';
 import { useSegmentListContext } from '@/contexts/segment-list-context';
-import { Button } from '@usertour-ui/button';
-import { Archive2LineIcon, Filter2LineIcon, Group2LineIcon, PLUSIcon } from '@usertour-ui/icons';
-import { Tooltip, TooltipContent, TooltipProvider, TooltipTrigger } from '@usertour-ui/tooltip';
-import { Segment } from '@usertour-ui/types';
+import { Button } from '@usertour-packages/button';
+import {
+  Archive2LineIcon,
+  Filter2LineIcon,
+  Group2LineIcon,
+  PLUSIcon,
+} from '@usertour-packages/icons';
+import {
+  Tooltip,
+  TooltipContent,
+  TooltipProvider,
+  TooltipTrigger,
+} from '@usertour-packages/tooltip';
+import { Segment } from '@usertour/types';
 import { useCallback, useState } from 'react';
 import { useSearchParams } from 'react-router-dom';
 import { CompanySegmentCreateForm } from './create-form';
 import { useAppContext } from '@/contexts/app-context';
+import { CompanySegmentListSkeleton } from './sidebar-skeleton';
 
 export function CompanyListSidebar() {
-  const { segmentList, refetch, environmentId, currentSegment } = useSegmentListContext();
+  const { segmentList, refetch, environmentId, currentSegment, loading } = useSegmentListContext();
   const [_, setSearchParams] = useSearchParams();
   const { isViewOnly } = useAppContext();
 
@@ -63,33 +74,40 @@ export function CompanyListSidebar() {
             </Tooltip>
           </TooltipProvider>
         </AdminSidebarHeaderTemplate>
-        <AdminSidebarBodyTemplate>
-          <AdminSidebarBodyTitleTemplate>Segments</AdminSidebarBodyTitleTemplate>
 
-          {segmentList?.map((segment, index) => (
-            <AdminSidebarBodyItemTemplate
-              key={index}
-              onClick={() => {
-                handleOnClick(segment);
-              }}
-              variant={segment.id === currentSegment?.id ? 'secondary' : 'ghost'}
-              className={
-                segment.id === currentSegment?.id ? 'bg-gray-200/40 dark:bg-secondary/60  ' : ''
-              }
-            >
-              {segment.dataType === 'CONDITION' && (
-                <Filter2LineIcon width={16} height={16} className="mr-1" />
-              )}
-              {segment.dataType === 'ALL' && (
-                <Group2LineIcon width={16} height={16} className="mr-1" />
-              )}
-              {segment.dataType === 'MANUAL' && (
-                <Archive2LineIcon width={16} height={16} className="mr-1" />
-              )}
-              {segment.name}
-            </AdminSidebarBodyItemTemplate>
-          ))}
-        </AdminSidebarBodyTemplate>
+        {/* Show skeleton for segment list when loading, otherwise show actual segments */}
+        {loading ? (
+          <CompanySegmentListSkeleton />
+        ) : (
+          <AdminSidebarBodyTemplate>
+            <AdminSidebarBodyTitleTemplate>Segments</AdminSidebarBodyTitleTemplate>
+
+            {segmentList?.map((segment, index) => (
+              <AdminSidebarBodyItemTemplate
+                key={index}
+                onClick={() => {
+                  handleOnClick(segment);
+                }}
+                variant={segment.id === currentSegment?.id ? 'secondary' : 'ghost'}
+                className={
+                  segment.id === currentSegment?.id ? 'bg-gray-200/40 dark:bg-secondary/60  ' : ''
+                }
+              >
+                {segment.dataType === 'CONDITION' && (
+                  <Filter2LineIcon width={16} height={16} className="mr-1" />
+                )}
+                {segment.dataType === 'ALL' && (
+                  <Group2LineIcon width={16} height={16} className="mr-1" />
+                )}
+                {segment.dataType === 'MANUAL' && (
+                  <Archive2LineIcon width={16} height={16} className="mr-1" />
+                )}
+                {segment.name}
+              </AdminSidebarBodyItemTemplate>
+            ))}
+          </AdminSidebarBodyTemplate>
+        )}
+
         <AdminSidebarFooter />
       </AdminSidebarContainerTemplate>
       <CompanySegmentCreateForm

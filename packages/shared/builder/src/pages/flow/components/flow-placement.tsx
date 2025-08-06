@@ -1,10 +1,9 @@
 import { OpenInNewWindowIcon } from '@radix-ui/react-icons';
-import { Button } from '@usertour-ui/button';
-import { useAttributeListContext, useContentListContext } from '@usertour-ui/contexts';
-import { createValue1 } from '@usertour-ui/shared-editor';
-import { defaultStep, getAuthToken } from '@usertour-ui/shared-utils';
-import { window } from '@usertour-ui/shared-utils';
-import { ContentVersion, ElementSelectorPropsData, Step, StepScreenshot } from '@usertour-ui/types';
+import { Button } from '@usertour-packages/button';
+import { useAttributeListContext, useContentListContext } from '@usertour-packages/contexts';
+import { getAuthToken } from '@usertour/helpers';
+import { window } from '@usertour/helpers';
+import { ElementSelectorPropsData, StepScreenshot } from '@usertour/types';
 import {
   ContentPlacementActions,
   ContentPlacementProvider,
@@ -21,7 +20,7 @@ export const FlowPlacement = () => {
     isWebBuilder,
     updateCurrentStep,
     setCurrentMode,
-    createStep,
+    createNewStep,
     currentVersion,
   } = useBuilderContext();
 
@@ -49,20 +48,9 @@ export const FlowPlacement = () => {
     });
   };
 
-  const createNewStep = (currentVersion: ContentVersion, sequence: number) => {
-    const step: Step = {
-      ...defaultStep,
-      type: 'tooltip',
-      name: 'Untitled',
-      data: createValue1,
-      sequence,
-    };
-    return createStep(currentVersion, step);
-  };
-
   const handleAboutPlacement = () => {
     window?.open(
-      'https://docs.usertour.io/building-experiences/creating-your-first-flow/#edit-flow',
+      'https://docs.usertour.io/building-experiences/creating-your-first-flow#tooltip-placement-tooltips-only',
       '_blank',
     );
   };

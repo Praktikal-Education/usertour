@@ -1,20 +1,15 @@
-import { ContentEditorClickableElement } from '@usertour-ui/shared-editor';
-import { BizEvents, EventAttributes, LauncherData, SDKContent } from '@usertour-ui/types';
-import { ContentActionsItemType, RulesCondition } from '@usertour-ui/types';
-import { evalCode } from '@usertour-ui/ui-utils';
+import { ContentEditorClickableElement } from '@usertour-packages/shared-editor';
+import { BizEvents, EventAttributes, LauncherData } from '@usertour/types';
+import { ContentActionsItemType, RulesCondition } from '@usertour/types';
+import { evalCode } from '@usertour/helpers';
 import { LauncherStore } from '../types/store';
 import { AppEvents } from '../utils/event';
 import { document } from '../utils/globals';
-import { App } from './app';
 import { BaseContent } from './base-content';
-import { defaultLauncherStore } from './common';
 import { ElementWatcher } from './element-watcher';
 
 export class Launcher extends BaseContent<LauncherStore> {
   private watcher: ElementWatcher | null = null;
-  constructor(instance: App, content: SDKContent) {
-    super(instance, content, defaultLauncherStore);
-  }
 
   /**
    * Monitors the launcher's visibility state and ensures it's properly handled
@@ -27,6 +22,9 @@ export class Launcher extends BaseContent<LauncherStore> {
   async monitor(): Promise<void> {
     // First, check and activate any content conditions
     await this.activeContentConditions();
+
+    // Check and update theme settings if needed
+    await this.checkAndUpdateThemeSettings();
 
     // Then, handle the visibility state based on conditions
     await this.handleVisibilityState();
@@ -45,8 +43,9 @@ export class Launcher extends BaseContent<LauncherStore> {
       return;
     }
 
-    const { openState } = this.getStore().getSnapshot();
+    const store = this.getStore().getSnapshot();
     const { isHidden } = await this.watcher.checkVisibility();
+    const openState = store?.openState;
 
     // Hide launcher if it's temporarily hidden or target element is not visible
     if (this.isTemporarilyHidden() || isHidden) {
@@ -59,12 +58,24 @@ export class Launcher extends BaseContent<LauncherStore> {
     // Show launcher if it's not already open
     if (!openState) {
       this.open();
-      this.trigger(BizEvents.LAUNCHER_SEEN);
+      await this.reportSeenEvent();
     }
   }
 
+  /**
+   * Gets the reused session ID for the launcher
+   * @returns {string | null} The reused session ID or null if not applicable
+   */
   getReusedSessionId() {
     return null;
+  }
+
+  /**
+   * Handle additional logic after content is shown
+   * @param _isNewSession - Whether this is a new session
+   */
+  async handleAfterShow(_isNewSession?: boolean) {
+    // Launcher has no additional logic, can be empty implementation
   }
 
   /**
@@ -72,17 +83,16 @@ export class Launcher extends BaseContent<LauncherStore> {
    * Combines default store data with content-specific data and base information
    * @returns {LauncherStore} The complete store data object
    */
-  private buildStoreData(): LauncherStore {
+  private async buildStoreData(): Promise<LauncherStore> {
     const content = this.getContent();
-    const baseInfo = this.getStoreBaseInfo();
+    const baseInfo = await this.getStoreBaseInfo();
     const { zIndex } = content.data;
 
     return {
-      ...defaultLauncherStore,
       content,
       openState: false,
       ...baseInfo,
-      zIndex: zIndex || baseInfo.zIndex,
+      zIndex: zIndex || baseInfo?.zIndex,
       triggerRef: undefined,
     } as LauncherStore;
   }
@@ -91,8 +101,8 @@ export class Launcher extends BaseContent<LauncherStore> {
    * Refreshes the launcher's store data
    * Updates the store with new data while preserving the current open state and trigger reference
    */
-  refresh() {
-    const { openState, triggerRef, ...storeData } = this.buildStoreData();
+  async refresh() {
+    const { openState, triggerRef, ...storeData } = await this.buildStoreData();
     this.updateStore({ ...storeData });
   }
 
@@ -104,7 +114,7 @@ export class Launcher extends BaseContent<LauncherStore> {
    * 3. Initialize a new element watcher
    * 4. Set up event handlers for element found and timeout scenarios
    */
-  show() {
+  async show() {
     const data = this.getContent().data as LauncherData;
 
     // Early return if document or target element is not available
@@ -118,12 +128,14 @@ export class Launcher extends BaseContent<LauncherStore> {
     }
 
     // Initialize store data and watcher
-    const storeData = this.buildStoreData();
+    const storeData = await this.buildStoreData();
     const store = { ...storeData, openState: false };
     this.setStore({ ...store });
 
     // Create and configure new element watcher
     this.watcher = new ElementWatcher(data.target.element);
+    // Set the target missing seconds
+    this.watcher.setTargetMissingSeconds(this.getTargetMissingSeconds());
 
     // Set up element found handler
     this.watcher.once(AppEvents.ELEMENT_FOUND, (el) => {
@@ -169,7 +181,7 @@ export class Launcher extends BaseContent<LauncherStore> {
       const { type, data } = actionRule;
 
       if (type === ContentActionsItemType.FLOW_START) {
-        await this.startNewTour(data.contentId);
+        await this.startNewContent(data.contentId, data.stepCvid);
       } else if (type === ContentActionsItemType.JAVASCRIPT_EVALUATE) {
         evalCode(data.value);
       } else if (type === ContentActionsItemType.LAUNCHER_DISMIS) {
@@ -184,36 +196,29 @@ export class Launcher extends BaseContent<LauncherStore> {
   }
 
   /**
-   * Initializes event listeners for launcher lifecycle events
-   * Sets up handlers for activation, dismissal, and visibility events
+   * Handles the activation of the launcher
+   * This method:
+   * 1. Reports the activation event
+   * 2. Auto-dismisses the launcher after activation if configured
    */
-  initializeEventListeners() {
+  async handleActive() {
     const content = this.getContent();
     const data = content.data as LauncherData;
     const { tooltip } = data;
-
-    // Handle launcher activation
-    this.once(BizEvents.LAUNCHER_ACTIVATED, async () => {
-      await this.reportActiveEvent();
-
-      // Auto-dismiss after activation if configured
-      if (tooltip?.settings?.dismissAfterFirstActivation) {
-        setTimeout(() => {
-          this.close();
-        }, 2000);
-      }
-    });
-
-    // Handle launcher dismissal
-    this.once(BizEvents.LAUNCHER_DISMISSED, () => {
-      this.reportDismissEvent();
-    });
-
-    // Handle launcher visibility
-    this.once(BizEvents.LAUNCHER_SEEN, () => {
-      this.reportSeenEvent();
-    });
+    await this.reportActiveEvent();
+    // Auto-dismiss after activation if configured
+    if (tooltip?.settings?.dismissAfterFirstActivation) {
+      setTimeout(() => {
+        this.close();
+      }, 2000);
+    }
   }
+
+  /**
+   * Initializes event listeners for launcher lifecycle events
+   * Sets up handlers for activation, dismissal, and visibility events
+   */
+  initializeEventListeners() {}
 
   /**
    * Closes the launcher and triggers dismissal events
@@ -224,8 +229,9 @@ export class Launcher extends BaseContent<LauncherStore> {
    */
   async close() {
     this.setDismissed(true);
+    this.setStarted(false);
     this.hide();
-    this.trigger(BizEvents.LAUNCHER_DISMISSED);
+    await this.reportDismissEvent();
   }
 
   /**
@@ -237,7 +243,7 @@ export class Launcher extends BaseContent<LauncherStore> {
    */
   destroy() {
     // Reset store to default state
-    this.setStore(defaultLauncherStore);
+    this.setStore(undefined);
 
     // Clean up element watcher
     if (this.watcher) {
@@ -268,13 +274,10 @@ export class Launcher extends BaseContent<LauncherStore> {
    * Creates a new session for tracking
    */
   private async reportSeenEvent() {
-    await this.reportEventWithSession(
-      {
-        eventName: BizEvents.LAUNCHER_SEEN,
-        eventData: this.getEventData(),
-      },
-      { isCreateSession: true },
-    );
+    await this.reportEventWithSession({
+      eventName: BizEvents.LAUNCHER_SEEN,
+      eventData: this.getEventData(),
+    });
   }
 
   /**
@@ -282,13 +285,10 @@ export class Launcher extends BaseContent<LauncherStore> {
    * Deletes the current tracking session
    */
   private async reportDismissEvent() {
-    await this.reportEventWithSession(
-      {
-        eventName: BizEvents.LAUNCHER_DISMISSED,
-        eventData: this.getEventData(),
-      },
-      { isDeleteSession: true },
-    );
+    await this.reportEventWithSession({
+      eventName: BizEvents.LAUNCHER_DISMISSED,
+      eventData: this.getEventData(),
+    });
   }
 
   /**
@@ -296,12 +296,9 @@ export class Launcher extends BaseContent<LauncherStore> {
    * Deletes the current tracking session after activation
    */
   private async reportActiveEvent() {
-    await this.reportEventWithSession(
-      {
-        eventName: BizEvents.LAUNCHER_ACTIVATED,
-        eventData: this.getEventData(),
-      },
-      { isDeleteSession: true },
-    );
+    await this.reportEventWithSession({
+      eventName: BizEvents.LAUNCHER_ACTIVATED,
+      eventData: this.getEventData(),
+    });
   }
 }

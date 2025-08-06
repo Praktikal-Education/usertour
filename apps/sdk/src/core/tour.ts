@@ -1,10 +1,10 @@
-import { smoothScroll } from '@usertour-ui/dom';
+import { smoothScroll } from '@usertour-packages/dom';
 import {
   ContentEditorClickableElement,
   ContentEditorElementType,
   ContentEditorQuestionElement,
   isQuestionElement,
-} from '@usertour-ui/shared-editor';
+} from '@usertour-packages/shared-editor';
 import {
   BizEvents,
   ContentActionsItemType,
@@ -15,25 +15,21 @@ import {
   StepContentType,
   StepTrigger,
   contentEndReason,
-} from '@usertour-ui/types';
-import { evalCode } from '@usertour-ui/ui-utils';
+} from '@usertour/types';
+import { evalCode } from '@usertour/helpers';
 import { TourStore } from '../types/store';
 import { activedRulesConditions, flowIsDismissed, isActive } from '../utils/conditions';
 import { AppEvents } from '../utils/event';
 import { document } from '../utils/globals';
-import { type App } from './app';
 import { BaseContent } from './base-content';
-import { defaultTourStore } from './common';
 import { ElementWatcher } from './element-watcher';
 import { logger } from '../utils/logger';
+import { getStepByCvid } from '../utils/content-utils';
 
 export class Tour extends BaseContent<TourStore> {
   private watcher: ElementWatcher | null = null;
   private triggerTimeouts: NodeJS.Timeout[] = []; // Store timeout IDs
-
-  constructor(instance: App, content: SDKContent) {
-    super(instance, content, defaultTourStore);
-  }
+  private flowCompletedReported = false; // Track if FLOW_COMPLETED has been reported
 
   /**
    * Monitors and updates the tour state
@@ -46,30 +42,23 @@ export class Tour extends BaseContent<TourStore> {
    */
   async monitor(): Promise<void> {
     try {
-      // Handle active tour monitoring
-      if (this.isActiveTour()) {
-        await this.monitorActiveTour();
-      }
-
       // Always activate content conditions
       await this.activeContentConditions();
+
+      // Handle active tour monitoring
+      if (this.isActiveTour()) {
+        // Check if the current step is visible
+        await this.checkStepVisible();
+        // Activate any trigger conditions
+        await this.activeTriggerConditions();
+        // Check and update theme settings if needed
+        await this.checkAndUpdateThemeSettings();
+      }
     } catch (error) {
       logger.error('Error in tour monitoring:', error);
       // Optionally handle the error or rethrow
       throw error;
     }
-  }
-
-  /**
-   * Monitors an active tour by checking visibility and trigger conditions
-   * @private
-   */
-  private async monitorActiveTour(): Promise<void> {
-    // Check if the current step is visible
-    await this.checkStepVisible();
-
-    // Activate any trigger conditions
-    await this.activeTriggerConditions();
   }
 
   /**
@@ -80,23 +69,28 @@ export class Tour extends BaseContent<TourStore> {
   async show(cvid?: string): Promise<void> {
     const content = this.getContent();
 
-    // Validate content has steps
-    if (!content.steps?.length) {
+    // Validate content is valid
+    if (!this.isValidTour(content)) {
       await this.close(contentEndReason.SYSTEM_CLOSED);
       return;
     }
 
+    const steps = content.steps ?? [];
     // Find the target step
-    const targetStep = cvid ? content.steps.find((step) => step.cvid === cvid) : content.steps[0];
+    const step = cvid ? getStepByCvid(steps, cvid) : steps[0];
 
     // If no valid step found, close the tour
-    if (!targetStep?.cvid) {
-      await this.close(contentEndReason.SYSTEM_CLOSED);
+    if (!step?.cvid) {
+      await this.close(contentEndReason.STEP_NOT_FOUND);
       return;
     }
 
-    // Navigate to the target step
-    await this.goto(targetStep.cvid);
+    // Reset tour state and set new step
+    this.reset();
+    this.setCurrentStep(step);
+
+    // Display step based on its type
+    await this.displayStep(step);
   }
 
   /**
@@ -105,7 +99,7 @@ export class Tour extends BaseContent<TourStore> {
    * while preserving the current trigger state
    * @returns void
    */
-  refresh(): void {
+  async refresh(): Promise<void> {
     const content = this.getContent();
     const currentStep = this.getCurrentStep();
 
@@ -133,7 +127,7 @@ export class Tour extends BaseContent<TourStore> {
     this.setCurrentStep(preservedStep);
 
     // Update store with new data
-    const { openState, triggerRef, progress, ...storeData } = this.buildStoreData();
+    const { openState, triggerRef, progress, ...storeData } = await this.buildStoreData();
     this.updateStore({
       ...storeData,
       currentStep: preservedStep,
@@ -157,11 +151,35 @@ export class Tour extends BaseContent<TourStore> {
     }
 
     // Check if flow has been dismissed
-    if (flowIsDismissed(content)) {
+    if (flowIsDismissed(content.latestSession)) {
       return null;
     }
 
     return content.latestSession.id;
+  }
+
+  /**
+   * Ends the latest session
+   */
+  async endLatestSession(reason: contentEndReason) {
+    const eventData: Record<string, any> = {
+      [EventAttributes.FLOW_END_REASON]: reason,
+      [EventAttributes.FLOW_VERSION_ID]: this.getContent().id,
+      [EventAttributes.FLOW_VERSION_NUMBER]: this.getContent().sequence,
+    };
+    const sessionId = this.getReusedSessionId();
+    if (!sessionId) {
+      return;
+    }
+
+    await this.reportEventWithSession({
+      sessionId,
+      eventName: BizEvents.FLOW_ENDED,
+      eventData,
+    });
+
+    // Remove the latest session from the content
+    this.removeContentLatestSession();
   }
 
   /**
@@ -171,77 +189,29 @@ export class Tour extends BaseContent<TourStore> {
    *
    * @returns {TourStore} The complete store data object
    */
-  private buildStoreData(): TourStore {
+  private async buildStoreData(): Promise<TourStore> {
     // Get base store information
-    const baseInfo = this.getStoreBaseInfo();
+    const baseInfo = await this.getStoreBaseInfo();
     const currentStep = this.getCurrentStep();
+    const zIndex = this.getBaseZIndex();
 
     // Combine all store data with proper defaults
     return {
-      ...defaultTourStore, // Start with default values
       triggerRef: null, // Reset trigger reference
       ...baseInfo, // Add base information
       currentStep, // Add current step
       openState: true, // Set initial open state
+      zIndex: zIndex + 200,
     } as TourStore;
   }
 
   /**
-   * Get a step by its cvid
-   * @param cvid - The cvid of the step to get
-   * @returns The step with the given cvid, or null if it doesn't exist
+   * Validates if the tour is valid
+   * @param content - The content to validate
+   * @returns {boolean} True if the tour is valid, false otherwise
    */
-  getStepByCvid(cvid: string): Step | null {
-    if (!cvid) {
-      return null;
-    }
-    const content = this.getContent();
-    if (!content?.steps?.length) {
-      return null;
-    }
-    return content.steps.find((step) => step.cvid === cvid) ?? null;
-  }
-
-  /**
-   * Navigates to a specific step in the tour by its cvid
-   * This method handles:
-   * 1. Validating user and content state
-   * 2. Finding and setting the target step
-   * 3. Displaying the step based on its type (tooltip or modal)
-   *
-   * @param stepCvid - The cvid of the step to navigate to
-   * @throws Will close the tour if validation fails or step is not found
-   */
-  async goto(stepCvid: string): Promise<void> {
-    // Validate user and content state
+  private isValidTour(content: SDKContent): boolean {
     const userInfo = this.getUserInfo();
-    const content = this.getContent();
-
-    if (!this.isValidTourState(content, userInfo)) {
-      await this.close(contentEndReason.SYSTEM_CLOSED);
-      return;
-    }
-
-    // Find and validate target step
-    const targetStep = this.getStepByCvid(stepCvid);
-    if (!targetStep) {
-      await this.close(contentEndReason.SYSTEM_CLOSED);
-      return;
-    }
-
-    // Reset tour state and set new step
-    this.reset();
-    this.setCurrentStep(targetStep);
-
-    // Display step based on its type
-    await this.displayStep(targetStep);
-  }
-
-  /**
-   * Validates if the tour can proceed with the current state
-   * @private
-   */
-  private isValidTourState(content: SDKContent, userInfo: any): boolean {
     return Boolean(content.steps?.length && userInfo?.externalId);
   }
 
@@ -286,8 +256,13 @@ export class Tour extends BaseContent<TourStore> {
     await this.activeTriggerConditions();
 
     // Set up element watcher
-    const store = this.buildStoreData();
+    const store = await this.buildStoreData();
     this.setupElementWatcher(currentStep, store);
+
+    const { isComplete } = this.getCurrentStepInfo(currentStep);
+    if (isComplete) {
+      await this.reportStepEvents(currentStep, BizEvents.FLOW_COMPLETED);
+    }
   }
 
   /**
@@ -311,23 +286,30 @@ export class Tour extends BaseContent<TourStore> {
 
     // Create new watcher
     if (!step.target) {
-      this.close(contentEndReason.SYSTEM_CLOSED);
+      this.close(contentEndReason.TOOLTIP_TARGET_MISSING);
       return;
     }
     this.watcher = new ElementWatcher(step.target);
+    this.watcher.setTargetMissingSeconds(this.getTargetMissingSeconds());
 
     // Handle element found
-    this.watcher.once('element-found', (el) => {
+    this.watcher.once(AppEvents.ELEMENT_FOUND, (el) => {
       if (el instanceof Element) {
         this.handleElementFound(el, step, store);
       }
     });
 
     // Handle element not found
-    this.watcher.once('element-found-timeout', async () => {
+    this.watcher.once(AppEvents.ELEMENT_FOUND_TIMEOUT, async () => {
       await this.handleElementNotFound(step);
     });
 
+    // Handle element changed
+    this.watcher.on(AppEvents.ELEMENT_CHANGED, (el) => {
+      if (el instanceof Element) {
+        this.handleElementChanged(el, step, store);
+      }
+    });
     // Start watching
     this.watcher.findElement();
   }
@@ -342,7 +324,7 @@ export class Tour extends BaseContent<TourStore> {
     if (currentStep?.cvid !== step.cvid) {
       return;
     }
-    const { isComplete, progress } = this.getCurrentStepInfo(step);
+    const { progress, index, total } = this.getCurrentStepInfo(step);
 
     // Scroll element into view if tour is visible
     if (openState) {
@@ -353,14 +335,29 @@ export class Tour extends BaseContent<TourStore> {
     this.setStore({
       ...store,
       progress,
+      currentStepIndex: index,
+      totalSteps: total,
       triggerRef: el,
       openState,
     });
 
-    // Report completion if this is the last step
-    if (isComplete) {
-      this.reportStepEvents(step, BizEvents.FLOW_COMPLETED);
+    // If the tour is temporarily hidden, unset the active tour
+    if (!openState) {
+      this.unsetActiveTour();
     }
+  }
+
+  private handleElementChanged(el: Element, step: Step, store: TourStore): void {
+    const currentStep = this.getCurrentStep();
+    if (currentStep?.cvid !== step.cvid) {
+      return;
+    }
+
+    // Update store
+    this.setStore({
+      ...store,
+      triggerRef: el,
+    });
   }
 
   /**
@@ -388,8 +385,8 @@ export class Tour extends BaseContent<TourStore> {
    */
   async showModal(currentStep: Step) {
     // Build store data and get step information
-    const store = this.buildStoreData();
-    const { progress, isComplete } = this.getCurrentStepInfo(currentStep);
+    const store = await this.buildStoreData();
+    const { progress, isComplete, index, total } = this.getCurrentStepInfo(currentStep);
 
     // Report that the step has been seen
     await this.reportStepEvents(currentStep, BizEvents.FLOW_STEP_SEEN);
@@ -399,11 +396,22 @@ export class Tour extends BaseContent<TourStore> {
 
     // Set up modal state
     const openState = !this.isTemporarilyHidden();
-    this.setStore({ ...store, openState, progress });
+    this.setStore({
+      ...store,
+      openState,
+      progress,
+      currentStepIndex: index, // Convert to 0-based index
+      totalSteps: total,
+    });
 
     // If this is the last step, report completion
     if (isComplete) {
       await this.reportStepEvents(currentStep, BizEvents.FLOW_COMPLETED);
+    }
+
+    // If the tour is temporarily hidden, unset the active tour
+    if (!openState) {
+      this.unsetActiveTour();
     }
   }
 
@@ -441,6 +449,8 @@ export class Tour extends BaseContent<TourStore> {
     await this.reportCloseEvent(reason);
     // Set the tour as dismissed
     this.setDismissed(true);
+    // Set the tour as not started
+    this.setStarted(false);
     // Destroy the tour
     this.destroy();
   }
@@ -467,9 +477,9 @@ export class Tour extends BaseContent<TourStore> {
     // Execute non-PAGE_NAVIGATE actions first
     for (const action of otherActions) {
       if (action.type === ContentActionsItemType.STEP_GOTO) {
-        await this.goto(action.data.stepCvid);
+        await this.show(action.data.stepCvid);
       } else if (action.type === ContentActionsItemType.FLOW_START) {
-        await this.startNewTour(action.data.contentId);
+        await this.startNewContent(action.data.contentId, action.data.stepCvid);
       } else if (action.type === ContentActionsItemType.FLOW_DISMIS) {
         await this.handleClose(contentEndReason.USER_CLOSED);
       } else if (action.type === ContentActionsItemType.JAVASCRIPT_EVALUATE) {
@@ -502,7 +512,6 @@ export class Tour extends BaseContent<TourStore> {
         });
       }
       await this.reportQuestionAnswer(el, value);
-      await this.refreshContents();
     }
     if (element?.data?.actions) {
       await this.handleActions(element.data.actions);
@@ -562,7 +571,11 @@ export class Tour extends BaseContent<TourStore> {
    * @returns {Promise<void>}
    */
   async checkStepVisible(): Promise<void> {
-    const { triggerRef, currentStep, openState } = this.getStore().getSnapshot();
+    const store = this.getStore()?.getSnapshot();
+    if (!store) {
+      return;
+    }
+    const { triggerRef, currentStep, openState } = store;
 
     // Early return if no current step
     if (!this.getCurrentStep() || !currentStep) {
@@ -574,6 +587,7 @@ export class Tour extends BaseContent<TourStore> {
       if (openState) {
         this.hide();
       }
+      this.unsetActiveTour();
       return;
     }
 
@@ -621,7 +635,7 @@ export class Tour extends BaseContent<TourStore> {
 
     // Handle timeout or hidden state
     if (isTimeout) {
-      await this.close(contentEndReason.SYSTEM_CLOSED);
+      await this.close(contentEndReason.TOOLTIP_TARGET_MISSING);
     } else {
       this.hide();
     }
@@ -727,7 +741,7 @@ export class Tour extends BaseContent<TourStore> {
    * @returns {boolean} True if the tour is visible and active, false otherwise
    */
   isShow(): boolean {
-    const { openState } = this.getStore().getSnapshot();
+    const openState = this.getStore().getSnapshot()?.openState || false;
     return this.isActiveTour() && Boolean(this.getCurrentStep()) && openState;
   }
 
@@ -736,7 +750,7 @@ export class Tour extends BaseContent<TourStore> {
    */
   reset() {
     this.setCurrentStep(null);
-    this.setStore(defaultTourStore);
+    this.setStore(undefined);
   }
 
   /**
@@ -765,11 +779,7 @@ export class Tour extends BaseContent<TourStore> {
   /**
    * Initializes event listeners
    */
-  initializeEventListeners() {
-    this.once(AppEvents.CONTENT_AUTO_START_ACTIVATED, async (args: any) => {
-      await this.reportAutoStartEvent(args.reason);
-    });
-  }
+  initializeEventListeners() {}
 
   /**
    * Get detailed information about the current step
@@ -785,25 +795,18 @@ export class Tour extends BaseContent<TourStore> {
     const total = content.steps?.length ?? 0;
     const index = content.steps?.findIndex((step) => step.cvid === currentStep.cvid) ?? 0;
     const progress = Math.round(((index + 1) / total) * 100);
-    const isComplete = index + 1 === total;
+    const isExplicitCompletionStep = currentStep.setting.explicitCompletionStep;
+    const isComplete = isExplicitCompletionStep ? isExplicitCompletionStep : index + 1 === total;
 
     return { total, index, progress, isComplete };
   }
 
   /**
-   * Reports the auto start event
-   * @param reason - The reason for the auto start
+   * Handle additional logic after content is shown
+   * @param _isNewSession - Whether this is a new session
    */
-  async reportAutoStartEvent(reason?: string) {
-    await this.reportEventWithSession(
-      {
-        eventName: BizEvents.FLOW_STARTED,
-        eventData: {
-          flow_start_reason: reason ?? 'auto_start',
-        },
-      },
-      { isCreateSession: true },
-    );
+  async handleAfterShow(_isNewSession?: boolean) {
+    // Tour has no additional logic, can be empty implementation
   }
 
   /**
@@ -813,26 +816,25 @@ export class Tour extends BaseContent<TourStore> {
   private async reportCloseEvent(reason: contentEndReason) {
     const currentStep = this.getCurrentStep();
     const eventData: Record<string, any> = {
-      flow_end_reason: reason,
+      [EventAttributes.FLOW_END_REASON]: reason,
+      [EventAttributes.FLOW_VERSION_ID]: this.getContent().id,
+      [EventAttributes.FLOW_VERSION_NUMBER]: this.getContent().sequence,
     };
 
     if (currentStep) {
       const { index, progress } = this.getCurrentStepInfo(currentStep);
       Object.assign(eventData, {
-        flow_step_number: index,
-        flow_step_cvid: currentStep.cvid,
-        flow_step_name: currentStep.name,
-        flow_step_progress: progress,
+        [EventAttributes.FLOW_STEP_NUMBER]: index,
+        [EventAttributes.FLOW_STEP_CVID]: currentStep.cvid,
+        [EventAttributes.FLOW_STEP_NAME]: currentStep.name,
+        [EventAttributes.FLOW_STEP_PROGRESS]: progress,
       });
     }
 
-    await this.reportEventWithSession(
-      {
-        eventName: BizEvents.FLOW_ENDED,
-        eventData,
-      },
-      { isDeleteSession: true },
-    );
+    await this.reportEventWithSession({
+      eventName: BizEvents.FLOW_ENDED,
+      eventData,
+    });
   }
 
   /**
@@ -845,10 +847,12 @@ export class Tour extends BaseContent<TourStore> {
     await this.reportEventWithSession({
       eventName: BizEvents.TOOLTIP_TARGET_MISSING,
       eventData: {
-        flow_step_number: index,
-        flow_step_cvid: currentStep.cvid,
-        flow_step_name: currentStep.name,
-        flow_step_progress: progress,
+        [EventAttributes.FLOW_VERSION_ID]: this.getContent().id,
+        [EventAttributes.FLOW_VERSION_NUMBER]: this.getContent().sequence,
+        [EventAttributes.FLOW_STEP_NUMBER]: index,
+        [EventAttributes.FLOW_STEP_CVID]: currentStep.cvid,
+        [EventAttributes.FLOW_STEP_NAME]: currentStep.name,
+        [EventAttributes.FLOW_STEP_PROGRESS]: progress,
       },
     });
   }
@@ -861,22 +865,30 @@ export class Tour extends BaseContent<TourStore> {
    * @param isComplete - Whether the current step is complete
    */
   private async reportStepEvents(currentStep: Step, eventName: BizEvents) {
+    // Check if this is a FLOW_COMPLETED event and if it has already been reported
+    if (eventName === BizEvents.FLOW_COMPLETED && this.flowCompletedReported) {
+      return;
+    }
+
     const { index, progress } = this.getCurrentStepInfo(currentStep);
 
     const eventData = {
-      flow_step_number: index,
-      flow_step_cvid: currentStep.cvid,
-      flow_step_name: currentStep.name,
-      flow_step_progress: Math.round(progress),
+      [EventAttributes.FLOW_VERSION_ID]: this.getContent().id,
+      [EventAttributes.FLOW_VERSION_NUMBER]: this.getContent().sequence,
+      [EventAttributes.FLOW_STEP_NUMBER]: index,
+      [EventAttributes.FLOW_STEP_CVID]: currentStep.cvid,
+      [EventAttributes.FLOW_STEP_NAME]: currentStep.name,
+      [EventAttributes.FLOW_STEP_PROGRESS]: Math.round(progress),
     };
-    const isDeleteSession = eventName === BizEvents.FLOW_COMPLETED;
 
-    await this.reportEventWithSession(
-      {
-        eventData,
-        eventName,
-      },
-      { isDeleteSession },
-    );
+    await this.reportEventWithSession({
+      eventData,
+      eventName,
+    });
+
+    // Mark FLOW_COMPLETED as reported if this was a completion event
+    if (eventName === BizEvents.FLOW_COMPLETED) {
+      this.flowCompletedReported = true;
+    }
   }
 }

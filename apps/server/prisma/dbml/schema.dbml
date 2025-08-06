@@ -79,6 +79,7 @@ Table Project {
   logoUrl String
   customerId String [note: 'Stripe customer ID']
   subscriptionId String [note: 'Stripe subscription ID']
+  license String [note: 'License']
   users UserOnProject [not null]
   environments Environment [not null]
   themes Theme [not null]
@@ -86,6 +87,8 @@ Table Project {
   events Event [not null]
   localizations Localization [not null]
   invites Invite [not null]
+  contents Content [not null]
+  segments Segment [not null]
 }
 
 Table UserOnProject {
@@ -118,6 +121,9 @@ Table Environment {
   bizCompanies BizCompany [not null]
   segments Segment [not null]
   accessTokens AccessToken [not null]
+  contentOnEnvironments ContentOnEnvironment [not null]
+  bizSessions BizSession [not null]
+  integrations Integration [not null]
 }
 
 Table AccessToken {
@@ -146,6 +152,7 @@ Table Theme {
   project Project [not null]
   projectId String [not null]
   settings Json
+  variations Json [note: 'Conditional variations']
   steps Step [not null]
   versions Version [not null]
 }
@@ -160,8 +167,10 @@ Table Content {
   type String [not null, default: 'flow']
   published Boolean [not null, default: false]
   deleted Boolean [not null, default: false]
-  environment Environment [not null]
-  environmentId String [not null]
+  environment Environment
+  environmentId String
+  project Project
+  projectId String
   config Json
   versions Version [not null]
   editedVersion Version
@@ -169,6 +178,25 @@ Table Content {
   publishedVersionId String [unique]
   editedVersionId String [unique]
   bizSession BizSession [not null]
+  contentOnEnvironments ContentOnEnvironment [not null]
+}
+
+Table ContentOnEnvironment {
+  id String [pk]
+  createdAt DateTime [default: `now()`, not null]
+  updatedAt DateTime [not null]
+  environment Environment [not null]
+  environmentId String [not null]
+  content Content [not null]
+  contentId String [not null]
+  published Boolean [not null, default: false]
+  publishedAt DateTime [default: `now()`, not null]
+  publishedVersion Version [not null]
+  publishedVersionId String [not null]
+
+  indexes {
+    (environmentId, contentId) [unique]
+  }
 }
 
 Table Version {
@@ -189,6 +217,7 @@ Table Version {
   publishByContent Content
   bizSession BizSession [not null]
   versionOnLocalization VersionOnLocalization [not null]
+  contentOnEnvironment ContentOnEnvironment [not null]
 
   indexes {
     (contentId, sequence) [unique]
@@ -265,6 +294,7 @@ Table Attribute {
   description String [not null, default: '']
   dataType Int [not null, default: 1]
   randomMax Int [not null, default: 1]
+  source String [not null, default: 'internal']
   predefined Boolean [not null, default: false]
   deleted Boolean [not null, default: false]
   attributeOnEvent AttributeOnEvent [not null]
@@ -336,8 +366,12 @@ Table Segment {
   name String [not null, default: '']
   bizType Int [not null, default: 1]
   dataType Int [not null, default: 1]
-  environment Environment [not null]
-  environmentId String [not null]
+  source String [default: 'internal', note: 'Source of the segment (e.g., "mixpanel", "heap", etc.)']
+  sourceId String [note: 'Source ID of the segment (e.g., "mixpanel_cohort_id")']
+  environment Environment
+  environmentId String
+  project Project
+  projectId String
   columns Json
   data Json
   deleted Boolean [not null, default: false]
@@ -417,6 +451,8 @@ Table BizSession {
   data Json
   progress Int [not null, default: 0]
   projectId String [not null, default: '']
+  environment Environment
+  environmentId String
   bizUser BizUser [not null]
   bizUserId String [not null]
   bizCompany BizCompany
@@ -451,6 +487,7 @@ Table BizAnswer {
   versionId String [not null]
   bizUserId String [not null]
   cvid String [not null]
+  environmentId String
   numberAnswer Int
   textAnswer String
   listAnswer String[] [not null]
@@ -493,7 +530,7 @@ Table Subscription {
   id String [pk, note: 'Primary key']
   subscriptionId String [unique, not null, note: 'Stripe subscription ID']
   lookupKey String [not null, note: 'Stripe price lookup key']
-  planType String [not null, note: 'Plan type (free, pro, max, etc.)']
+  planType String [not null, note: 'Plan type (hobby, starter, growth, business)']
   interval String [not null, note: 'Billing interval (monthly, yearly, etc.)']
   projectId String [not null, note: 'Project ID']
   status String [not null, note: 'Stripe subscription status']
@@ -517,6 +554,69 @@ Table CheckoutSession {
   customerId String [note: 'Stripe customer ID']
   createdAt DateTime [default: `now()`, not null, note: 'Create timestamp']
   updatedAt DateTime [default: `now()`, not null, note: 'Update timestamp']
+}
+
+Table Integration {
+  id String [pk]
+  provider String [not null, note: 'code of rntegration (e.g., "ga", "mixpanel", "posthog")']
+  key String [not null, default: '', note: 'api key or  of integration ']
+  accessToken String [unique, not null, note: 'access token of integration']
+  config Json [note: 'JSON schema for configuration (optional)']
+  enabled Boolean [not null, default: false, note: 'Whether the integration is enabled']
+  environment Environment [not null, note: 'environment of integration']
+  environmentId String [not null, note: 'environment id']
+  createdAt DateTime [default: `now()`, not null, note: 'Create timestamp']
+  updatedAt DateTime [default: `now()`, not null, note: 'Update timestamp']
+  integrationLogs IntegrationLog [not null, note: 'integration logs']
+  integrationOAuth IntegrationOAuth
+  integrationObjectMappings IntegrationObjectMapping [not null]
+
+  indexes {
+    (environmentId, provider) [unique]
+  }
+}
+
+Table IntegrationOAuth {
+  id String [pk, note: 'primary key']
+  createdAt DateTime [default: `now()`, not null, note: 'create timestamp']
+  updatedAt DateTime [not null, note: 'update timestamp']
+  accessToken String [not null, note: 'access token']
+  refreshToken String [not null, note: 'refresh token']
+  expiresAt DateTime [not null, note: 'expires at']
+  data Json [note: 'data']
+  scope String [not null, note: 'scope']
+  provider String [not null, note: 'provider (e.g., "salesforce", "hubspot")']
+  providerAccountId String [not null, note: 'provider account id']
+  integration Integration [not null, note: 'integration']
+  integrationId String [unique, not null, note: 'integration id']
+}
+
+Table IntegrationObjectMapping {
+  id String [pk]
+  createdAt DateTime [default: `now()`, not null, note: 'Create timestamp']
+  updatedAt DateTime [default: `now()`, not null, note: 'Update timestamp']
+  sourceObjectType String [not null, note: 'source object type (e.g., "account", "contact", "lead")']
+  destinationObjectType String [not null, note: 'destination object type (e.g., "user", "company")']
+  settings Json [note: 'settings']
+  enabled Boolean [not null, default: false, note: 'enabled']
+  isSyncing Boolean [not null, default: false, note: 'is syncing']
+  lastSyncedAt DateTime [note: 'last synced at']
+  integration Integration [not null, note: 'integration']
+  integrationId String [not null, note: 'integration id']
+
+  indexes {
+    (integrationId, sourceObjectType, destinationObjectType) [unique]
+  }
+}
+
+Table IntegrationLog {
+  id String [pk, note: 'Primary key']
+  createdAt DateTime [default: `now()`, not null, note: 'Create timestamp']
+  updatedAt DateTime [not null, note: 'Update timestamp']
+  integration Integration [not null, note: 'integration']
+  integrationId String [not null, note: 'integration id']
+  status String [not null, note: 'status of integration log']
+  data Json [note: 'data of integration log']
 }
 
 Enum Role {
@@ -546,9 +646,17 @@ Ref: Theme.projectId > Project.id
 
 Ref: Content.environmentId > Environment.id
 
+Ref: Content.projectId > Project.id
+
 Ref: Content.editedVersionId - Version.id
 
 Ref: Content.publishedVersionId - Version.id
+
+Ref: ContentOnEnvironment.environmentId > Environment.id
+
+Ref: ContentOnEnvironment.contentId > Content.id
+
+Ref: ContentOnEnvironment.publishedVersionId > Version.id
 
 Ref: Version.themeId > Theme.id
 
@@ -578,6 +686,8 @@ Ref: BizCompany.environmentId > Environment.id
 
 Ref: Segment.environmentId > Environment.id
 
+Ref: Segment.projectId > Project.id
+
 Ref: BizUserOnSegment.segmentId > Segment.id
 
 Ref: BizUserOnSegment.bizUserId > BizUser.id
@@ -591,6 +701,8 @@ Ref: Event.projectId > Project.id
 Ref: AttributeOnEvent.eventId > Event.id
 
 Ref: AttributeOnEvent.attributeId > Attribute.id
+
+Ref: BizSession.environmentId > Environment.id
 
 Ref: BizSession.bizUserId > BizUser.id
 
@@ -607,3 +719,11 @@ Ref: BizEvent.bizUserId > BizUser.id
 Ref: BizEvent.bizSessionId > BizSession.id
 
 Ref: RefreshToken.userId > User.id
+
+Ref: Integration.environmentId > Environment.id
+
+Ref: IntegrationOAuth.integrationId - Integration.id
+
+Ref: IntegrationObjectMapping.integrationId > Integration.id
+
+Ref: IntegrationLog.integrationId > Integration.id

@@ -1,10 +1,11 @@
-import { isVisibleNode } from '@usertour-ui/dom';
-import { finderV2 } from '@usertour-ui/finder';
-import { ElementSelectorPropsData } from '@usertour-ui/types';
+import { isVisibleNode } from '@usertour-packages/dom';
+import { finderV2 } from '@usertour-packages/finder';
+import { ElementSelectorPropsData } from '@usertour/types';
 import { isVisible } from '../utils/conditions';
 import { AppEvents } from '../utils/event';
 import { document } from '../utils/globals';
 import { Evented } from './evented';
+import { DEFAULT_TARGET_MISSING_SECONDS } from './common';
 
 /**
  * Interface to track element visibility state
@@ -19,7 +20,6 @@ type CheckContentIsVisible = {
 // Constants for element watching configuration
 const RETRY_LIMIT = 30; // Maximum number of retry attempts
 const RETRY_DELAY = 200; // Delay between retries in milliseconds
-const VISIBILITY_TIMEOUT = 6000; // Maximum time to wait for element visibility
 
 /**
  * ElementWatcher class for monitoring DOM elements
@@ -30,10 +30,19 @@ export class ElementWatcher extends Evented {
   private timer: NodeJS.Timeout | null = null; // Timer for retry mechanism
   private element: Element | null = null; // Reference to the found element
   private checker: CheckContentIsVisible | null = null; // Visibility state tracker
+  private targetMissingSeconds = DEFAULT_TARGET_MISSING_SECONDS; // Time allowed for target element to be missing
 
   constructor(target: ElementSelectorPropsData) {
     super();
     this.target = target;
+  }
+
+  /**
+   * Sets the time allowed for target element to be missing
+   * @param seconds - Time in seconds
+   */
+  setTargetMissingSeconds(seconds: number) {
+    this.targetMissingSeconds = seconds;
   }
 
   /**
@@ -43,7 +52,7 @@ export class ElementWatcher extends Evented {
   findElement(retryTimes = 0): void {
     this.clearTimer();
 
-    if (retryTimes >= RETRY_LIMIT) {
+    if (retryTimes >= RETRY_LIMIT || retryTimes * RETRY_DELAY > this.targetMissingSeconds * 1000) {
       this.trigger(AppEvents.ELEMENT_FOUND_TIMEOUT);
       return;
     }
@@ -53,7 +62,7 @@ export class ElementWatcher extends Evented {
       return;
     }
 
-    const el = finderV2(this.target, document.body);
+    const el = this.findElementBySelector();
     if (!el) {
       this.scheduleRetry(retryTimes);
       return;
@@ -70,6 +79,18 @@ export class ElementWatcher extends Evented {
   async checkVisibility(): Promise<{ isHidden: boolean; isTimeout: boolean }> {
     if (!this.element) {
       return { isHidden: true, isTimeout: false };
+    }
+
+    // Check if the element is still in the current DOM tree and is the correct target
+    // This handles SPA page changes where the element might have been removed or changed
+    if (!this.isElementValid()) {
+      // Try to find the element again with the same selector
+      const el = this.findElementBySelector();
+      if (el) {
+        // Found a new element that matches our selector
+        this.element = el;
+        this.trigger(AppEvents.ELEMENT_CHANGED, el);
+      }
     }
 
     const isHidden =
@@ -101,14 +122,20 @@ export class ElementWatcher extends Evented {
   }
 
   /**
+   * Resets the element watcher state
+   * Useful when SPA navigation occurs and we want to start fresh
+   */
+  reset(): void {
+    this.clearTimer();
+    this.element = null;
+    this.checker = null;
+  }
+
+  /**
    * Cleans up resources and resets the watcher state
    */
   destroy() {
-    if (this.timer) {
-      clearTimeout(this.timer);
-      this.timer = null;
-    }
-    this.element = null;
+    this.reset();
   }
 
   /**
@@ -146,8 +173,57 @@ export class ElementWatcher extends Evented {
       this.checker = {
         ...this.checker,
         checkHiddenTs: now,
-        isTimeout: now - this.checker.startHiddenTs > VISIBILITY_TIMEOUT,
+        isTimeout: now - this.checker.startHiddenTs > this.targetMissingSeconds * 1000,
       };
     }
+  }
+
+  /**
+   * Checks if the element is still valid (present in DOM and matches target selector)
+   * This handles cases where SPA navigation keeps old elements in DOM
+   * but they're no longer the intended target
+   * @returns boolean indicating if element is valid and matches target
+   */
+  private isElementValid(): boolean {
+    if (!this.element || !document?.body) {
+      return false;
+    }
+
+    // Check if element is still in DOM
+    if (!document.body.contains(this.element)) {
+      return false;
+    }
+
+    // Additional check: verify this element still matches our target selector
+    // This handles cases where SPA navigation keeps old elements in DOM
+    // but they're no longer the intended target
+    try {
+      const currentElement = this.findElementBySelector();
+      if (!currentElement) {
+        return false;
+      }
+
+      // If the found element is different from our stored element,
+      // it means the page has changed and we should update our reference
+      if (currentElement !== this.element) {
+        return false;
+      }
+
+      return true;
+    } catch {
+      // If selector evaluation fails, assume element is no longer valid
+      return false;
+    }
+  }
+
+  /**
+   * Finds the target element using finderV2
+   * @returns Found element or null if not found
+   */
+  private findElementBySelector(): Element | null {
+    if (!document?.body) {
+      return null;
+    }
+    return finderV2(this.target, document.body);
   }
 }

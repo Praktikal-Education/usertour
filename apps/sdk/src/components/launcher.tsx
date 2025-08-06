@@ -1,21 +1,23 @@
-import { PopperMadeWith } from '@usertour-ui/sdk';
+import { PopperMadeWith } from '@usertour-packages/sdk';
 import {
   LauncherContentWrapper,
   LauncherPopper,
   LauncherPopperContent,
   LauncherPopperContentPotal,
   LauncherRoot,
-} from '@usertour-ui/sdk/src/launcher';
-import { ContentEditorClickableElement, ContentEditorSerialize } from '@usertour-ui/shared-editor';
+} from '@usertour-packages/sdk/src/launcher';
 import {
-  BizEvents,
+  ContentEditorClickableElement,
+  ContentEditorSerialize,
+} from '@usertour-packages/shared-editor';
+import {
   BizUserInfo,
   LauncherActionType,
   LauncherData,
   LauncherTriggerElement,
   RulesCondition,
-  Theme,
-} from '@usertour-ui/types';
+  ThemeTypesSetting,
+} from '@usertour/types';
 import { useEffect, useMemo, useRef, useState, useSyncExternalStore } from 'react';
 import { Launcher } from '../core/launcher';
 import { useEventHandlers } from '../hooks/use-event-handlers';
@@ -31,9 +33,9 @@ type LauncherWidgetCoreProps = {
   data: LauncherData;
   handleActions: (actions: RulesCondition[]) => void;
   el: HTMLElement;
-  theme: Theme;
+  themeSettings: ThemeTypesSetting;
   zIndex: number;
-  handleOnClick: ({ type, data }: ContentEditorClickableElement) => void;
+  handleOnClick: ({ type, data }: ContentEditorClickableElement) => Promise<void>;
   userInfo: BizUserInfo;
   handleActive: () => void;
   removeBranding: boolean;
@@ -141,7 +143,7 @@ const LauncherTooltip = ({
 }: {
   data: LauncherData;
   userInfo: BizUserInfo;
-  handleOnClick: (element: ContentEditorClickableElement) => void;
+  handleOnClick: (element: ContentEditorClickableElement) => Promise<void>;
   removeBranding: boolean;
   popperRef: React.RefObject<HTMLDivElement>;
 }) => (
@@ -161,7 +163,7 @@ const LauncherWidgetCore = ({
   data,
   handleActions,
   el,
-  theme,
+  themeSettings,
   zIndex,
   handleOnClick,
   userInfo,
@@ -187,7 +189,7 @@ const LauncherWidgetCore = ({
   usePopperMouseLeave(popperRef, actionType, setOpen);
 
   return (
-    <LauncherRoot theme={theme} data={data}>
+    <LauncherRoot themeSettings={themeSettings} data={data}>
       <LauncherPopper
         triggerRef={
           data.behavior.triggerElement === LauncherTriggerElement.LAUNCHER
@@ -211,24 +213,27 @@ const LauncherWidgetCore = ({
 };
 
 export const LauncherWidget = ({ launcher }: LauncherWidgetProps) => {
-  const store = launcher.getStore();
-  const { userInfo, content, zIndex, theme, triggerRef, openState, sdkConfig } =
-    useSyncExternalStore(store.subscribe, store.getSnapshot, store.getSnapshot);
+  const store = useSyncExternalStore(
+    launcher.getStore().subscribe,
+    launcher.getStore().getSnapshot,
+  );
+  if (!store) {
+    return <></>;
+  }
+  const { userInfo, content, zIndex, themeSettings, triggerRef, openState, sdkConfig } = store;
 
   const data = content?.data as LauncherData | undefined;
 
-  if (!theme || !data || !triggerRef || !openState) {
-    return null;
+  if (!themeSettings || !data || !triggerRef || !openState) {
+    return <></>;
   }
 
   return (
     <LauncherWidgetCore
       data={data}
-      handleActive={() => {
-        launcher.trigger(BizEvents.LAUNCHER_ACTIVATED);
-      }}
+      handleActive={launcher.handleActive}
       handleActions={launcher.handleActions}
-      theme={theme}
+      themeSettings={themeSettings}
       zIndex={zIndex}
       handleOnClick={launcher.handleOnClick}
       userInfo={userInfo as BizUserInfo}

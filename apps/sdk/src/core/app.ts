@@ -1,6 +1,14 @@
-import { MESSAGE_START_FLOW_WITH_TOKEN, STORAGE_IDENTIFY_ANONYMOUS } from '@usertour-ui/constants';
-import { AssetAttributes } from '@usertour-ui/frame';
-import { autoStartConditions, storage } from '@usertour-ui/shared-utils';
+import {
+  MESSAGE_START_FLOW_WITH_TOKEN,
+  SDK_CSS_LOADED,
+  SDK_CSS_LOADED_FAILED,
+  SDK_DOM_LOADED,
+  SDK_CONTENT_CHANGED,
+  STORAGE_IDENTIFY_ANONYMOUS,
+  SDK_CONTAINER_CREATED,
+} from '@usertour-packages/constants';
+import { AssetAttributes } from '@usertour-packages/frame';
+import { autoStartConditions, storage } from '@usertour/helpers';
 import {
   BizCompany,
   BizUserInfo,
@@ -8,28 +16,33 @@ import {
   PlanType,
   SDKConfig,
   SDKContent,
+  ContentSession,
   SDKSettingsMode,
   Theme,
   contentEndReason,
   contentStartReason,
-} from '@usertour-ui/types';
-import { UserTourTypes } from '@usertour-ui/types';
-import { uuidV4 } from '@usertour-ui/ui-utils';
+  BizSession,
+  GetProjectSettingsResponse,
+} from '@usertour/types';
+import { UserTourTypes } from '@usertour/types';
+import { uuidV4 } from '@usertour/helpers';
 import ReactDOM from 'react-dom/client';
 import { render } from '../components';
-import { ReportEventOptions, ReportEventParams } from '../types/content';
+import { ReportEventParams } from '../types/content';
 import autoBind from '../utils/auto-bind';
-import { compareContentPriorities } from '../utils/content';
 import {
   findTourFromUrl,
   initializeContentItems,
-  findLatestActivatedTour,
-  findLatestStepNumber,
   findChecklistFromUrl,
-  findLatestActivatedChecklist,
+  findLatestActivatedTourAndCvid,
+  findLatestValidActivatedChecklist,
+  isSameTour,
+  getAutoStartContentSortedByPriority,
+  activedContentsRulesConditions,
+  hasAttributesChanged,
+  isSameChecklist,
 } from '../utils/content-utils';
 import { getMainCss, getWsUri } from '../utils/env';
-import { AppEvents } from '../utils/event';
 import { extensionIsRunning } from '../utils/extension';
 import { document, window } from '../utils/globals';
 import { on } from '../utils/listener';
@@ -37,13 +50,13 @@ import { loadCSSResource } from '../utils/loader';
 import { logger } from '../utils/logger';
 import { getValidMessage, sendPreviewSuccessMessage } from '../utils/postmessage';
 import { Checklist } from './checklist';
-import { createMockUser } from './common';
+import { createMockUser, DEFAULT_TARGET_MISSING_SECONDS, SESSION_TIMEOUT_HOURS } from './common';
 import { Evented } from './evented';
 import { Launcher } from './launcher';
 import { Socket } from './socket';
 import { ExternalStore } from './store';
 import { Tour } from './tour';
-import { checklistIsDimissed, flowIsDismissed, flowIsSeen } from '../utils/conditions';
+import { checklistIsSeen, flowIsSeen } from '../utils/conditions';
 
 interface AppStartOptions {
   environmentId?: string;
@@ -82,11 +95,12 @@ export class App extends Evented {
   toursStore = new ExternalStore<Tour[]>([]);
   private baseZIndex = 1000000;
   private root: ReactDOM.Root | undefined;
-  private contentPollingInterval: number | undefined;
-  private readonly CONTENT_POLLING_INTERVAL = 60000; // 1 minute
   private isMonitoring = false;
   private readonly MONITOR_INTERVAL = 200;
   private lastCheck = 0;
+  private sessionTimeoutHours = SESSION_TIMEOUT_HOURS;
+  private targetMissingSeconds = DEFAULT_TARGET_MISSING_SECONDS;
+  private customNavigate: ((url: string) => void) | null = null;
 
   constructor() {
     super();
@@ -111,30 +125,86 @@ export class App extends Evented {
   }
 
   /**
+   * Sets the session timeout in hours
+   * @param hours - Number of hours before a session times out
+   * @throws {Error} If hours is greater than 720 (30 days)
+   */
+  setSessionTimeout(hours: number) {
+    if (hours > 24 * 30) {
+      throw new Error('Session timeout cannot exceed 30 days (720 hours)');
+    }
+    this.sessionTimeoutHours = hours;
+  }
+
+  /**
+   * Gets the current session timeout in hours
+   * @returns The current session timeout in hours
+   */
+  getSessionTimeout(): number {
+    return this.sessionTimeoutHours;
+  }
+
+  /**
+   * Sets the time allowed for target element to be missing
+   * @param seconds - Time in seconds
+   * @throws {Error} If seconds is greater than 10
+   */
+  setTargetMissingSeconds(seconds: number) {
+    if (seconds > 10) {
+      throw new Error('Target missing time cannot exceed 10 seconds');
+    }
+    this.targetMissingSeconds = seconds;
+  }
+
+  /**
+   * Gets the time allowed for target element to be missing
+   * @returns Time in seconds
+   */
+  getTargetMissingSeconds() {
+    return this.targetMissingSeconds;
+  }
+
+  /**
+   * Sets a custom navigation function to override default window.location.href behavior
+   * @param customNavigate - Function taking a single string url parameter, or null to use default behavior
+   */
+  setCustomNavigate(customNavigate: ((url: string) => void) | null) {
+    this.customNavigate = customNavigate;
+  }
+
+  /**
+   * Gets the current custom navigation function
+   * @returns The current custom navigation function or null if using default behavior
+   */
+  getCustomNavigate(): ((url: string) => void) | null {
+    return this.customNavigate;
+  }
+
+  /**
    * Initializes DOM event listeners for the application
    */
   initializeEventListeners() {
-    this.once('dom-loaded', () => {
+    this.once(SDK_DOM_LOADED, () => {
       this.loadCss();
     });
-    this.once('css-loaded', () => {
+    this.once(SDK_CSS_LOADED, () => {
       this.createContainer();
       this.createRoot();
     });
+    // refresh data when content changed in the server
+    this.socket.on(SDK_CONTENT_CHANGED, () => {
+      this.fetchAndInitContent();
+    });
     if (document?.readyState !== 'loading') {
-      this.trigger('dom-loaded');
+      this.trigger(SDK_DOM_LOADED);
     } else if (document) {
       on(document, 'DOMContentLoaded', () => {
-        this.trigger('dom-loaded');
+        this.trigger(SDK_DOM_LOADED);
       });
     }
     if (window) {
       on(window, 'message', this.handlePreviewMessage);
     }
-
-    this.on(AppEvents.EVENT_REPORTED, () => {
-      this.refresh();
-    });
   }
 
   /**
@@ -179,12 +249,9 @@ export class App extends Evented {
       return;
     }
     if (content.type === ContentDataType.FLOW) {
-      if (opts?.once && flowIsSeen(content)) {
-        return;
-      }
-      await this.startTour(contentId, contentStartReason.START_FROM_PROGRAM);
+      await this.startTour(contentId, contentStartReason.START_FROM_PROGRAM, opts);
     } else if (content.type === ContentDataType.CHECKLIST) {
-      await this.startChecklist(contentId, contentStartReason.START_FROM_PROGRAM);
+      await this.startChecklist(contentId, contentStartReason.START_FROM_PROGRAM, opts);
     }
   }
 
@@ -279,6 +346,21 @@ export class App extends Evented {
   }
 
   /**
+   * Checks if a content has been started
+   * @param contentId - The content ID to check
+   * @returns True if the content has been started, false otherwise
+   */
+  isStarted(contentId: string) {
+    if (this.activeTour?.getContent().contentId === contentId) {
+      return this.activeTour.hasStarted();
+    }
+    if (this.activeChecklist?.getContent().contentId === contentId) {
+      return this.activeChecklist.hasStarted();
+    }
+    return false;
+  }
+
+  /**
    * Updates user attributes
    * @param attributes - New user attributes to update
    */
@@ -290,6 +372,13 @@ export class App extends Evented {
     if (!this.useCurrentUser()) {
       return;
     }
+
+    // Check if attributes have actually changed
+    if (!hasAttributesChanged(this.userInfo.data, attributes)) {
+      // No changes detected, skip the update
+      return;
+    }
+
     const userId = this.userInfo.externalId;
     const userInfo = await this.socket.upsertUser({
       userId,
@@ -298,7 +387,8 @@ export class App extends Evented {
     });
     if (userInfo?.externalId) {
       this.setUser(userInfo);
-      this.refresh();
+      await this.fetchAndInitContent();
+      await this.fetchProjectSettings();
     }
   }
 
@@ -346,7 +436,7 @@ export class App extends Evented {
     );
     if (companyInfo?.externalId) {
       this.setCompany(companyInfo);
-      this.refresh();
+      this.fetchAndInitContent();
     }
   }
 
@@ -365,6 +455,13 @@ export class App extends Evented {
     ) {
       return;
     }
+
+    // Check if attributes have actually changed
+    if (!hasAttributesChanged(this.companyInfo.data, attributes)) {
+      // No changes detected, skip the update
+      return;
+    }
+
     const userId = this.userInfo.externalId;
     const companyId = this.companyInfo?.externalId;
     const companyInfo = await this.socket.upsertCompany(
@@ -378,7 +475,7 @@ export class App extends Evented {
       return;
     }
     this.setCompany(companyInfo);
-    this.refresh();
+    this.fetchAndInitContent();
   }
 
   /**
@@ -392,9 +489,9 @@ export class App extends Evented {
     }
     const loadMainCss = await loadCSSResource(cssFile, document);
     if (loadMainCss) {
-      this.trigger('css-loaded');
+      this.trigger(SDK_CSS_LOADED);
     } else {
-      this.trigger('css-loaded-failed');
+      this.trigger(SDK_CSS_LOADED_FAILED);
     }
   }
 
@@ -404,22 +501,23 @@ export class App extends Evented {
       return;
     }
     await this.reset();
-    await this.initSdkConfig();
-    await this.initThemeData();
-    await this.initContentData();
-    this.initContents();
-    this.syncAllStores();
+    await this.fetchProjectSettings();
+    await this.fetchAndInitContent();
     await this.startContents();
     await this.startActivityMonitor();
-    this.startContentPolling();
   }
 
   getSdkConfig() {
     return this.sdkConfig;
   }
 
-  async refresh() {
-    await this.initContentData();
+  /**
+   * Fetches fresh content data from server and initializes content
+   */
+  async fetchAndInitContent(fetch = true) {
+    if (fetch) {
+      await this.fetchContents();
+    }
     if (this.originContents) {
       this.initContents();
       this.syncAllStores();
@@ -427,11 +525,37 @@ export class App extends Evented {
   }
 
   /**
+   * Refreshes the content session
+   * @param contentSession - The content session to refresh
+   */
+  async refreshContentSession(contentSession: ContentSession) {
+    if (!this.originContents) {
+      return;
+    }
+
+    const newContents = this.originContents.map((content) => {
+      if (content.contentId === contentSession.contentId) {
+        return {
+          ...content,
+          ...contentSession,
+        };
+      }
+      return content;
+    });
+
+    this.originContents = await activedContentsRulesConditions(newContents);
+
+    await this.fetchAndInitContent(false);
+    if (this.activeChecklist) {
+      await this.activeChecklist.handleItemConditions();
+    }
+  }
+  /**
    * Reports an event to the tracking system
    * @param event - Event parameters to report
    * @param options - Optional reporting options
    */
-  async reportEvent(event: ReportEventParams, options: ReportEventOptions = {}) {
+  async reportEvent(event: ReportEventParams) {
     if (this.isPreview()) {
       return;
     }
@@ -439,70 +563,57 @@ export class App extends Evented {
     const { token } = this.startOptions;
 
     try {
-      const sessionId = event.sessionId || (await this.handleSession(event, options));
+      const sessionId = event.sessionId;
       if (!sessionId) {
         return;
       }
 
-      await this.socket.trackEvent({
+      const contentSession = await this.socket.trackEvent({
         userId: event.userId,
         token,
         sessionId,
         eventData: event.eventData,
         eventName: event.eventName,
       });
-      this.trigger(AppEvents.EVENT_REPORTED);
+
+      if (contentSession) {
+        await this.refreshContentSession(contentSession);
+      }
     } catch (error) {
       logger.error('Failed to report event:', error);
     }
   }
 
   /**
-   * Handles session management for event reporting
-   * @param event - Event parameters
-   * @param options - Session options
-   * @returns Session ID if successful
+   * Creates a session for a content
+   * @param contentId - The content ID to create a session for
+   * @param reason - The reason for starting the content
+   * @returns The session ID if successful
    */
-  private async handleSession(
-    event: ReportEventParams,
-    options: ReportEventOptions,
-  ): Promise<string | undefined> {
-    const { contentId } = event;
-    const { isCreateSession = false, isDeleteSession = false } = options;
-
-    let sessionId = this.sessions.get(contentId)?.sessionId;
-
-    if (isCreateSession) {
-      const session = await this.createSession(contentId);
-      if (!session) {
-        logger.error('Failed to create user session.');
-        return;
-      }
-
-      this.sessions.set(contentId, { sessionId: session.id, state: 0 });
-      sessionId = session.id;
-    }
-
-    if (isDeleteSession) {
-      this.sessions.delete(contentId);
-    }
-
-    return sessionId;
-  }
-
-  async createSession(contentId: string) {
+  async createSession(contentId: string, reason = 'auto_start'): Promise<BizSession | null> {
     const { token } = this.startOptions;
     const userId = this.userInfo?.externalId;
     const companyId = this.companyInfo?.externalId;
     if (!userId || !token) {
-      return;
+      return null;
     }
-    return await this.socket.createSession({
+    const result = await this.socket.createSession({
       userId,
       contentId,
       token,
       companyId,
+      reason,
+      context: {
+        pageUrl: window?.location?.href,
+        viewportWidth: window?.innerWidth,
+        viewportHeight: window?.innerHeight,
+      },
     });
+    if (result) {
+      await this.refreshContentSession(result.contentSession);
+      return result.session;
+    }
+    return null;
   }
 
   /**
@@ -524,7 +635,7 @@ export class App extends Evented {
     }
 
     this.container = container;
-    this.trigger('container-created');
+    this.trigger(SDK_CONTAINER_CREATED);
   }
 
   /**
@@ -539,7 +650,7 @@ export class App extends Evented {
   /**
    * Initializes content data based on current settings
    */
-  async initContentData() {
+  async fetchContents() {
     // Validate required params
     if (!this.validateInitParams()) {
       this.originContents = undefined;
@@ -601,68 +712,174 @@ export class App extends Evented {
   }
 
   /**
-   * Starts all registered checklists
+   * Starts a checklist with given content ID and reason
+   * @param contentId - Optional content ID to start specific checklist
+   * @param reason - Reason for starting the checklist
+   * @param opts - Optional start options
    */
-  async startChecklist(contentId?: string, reason?: string) {
-    const userInfo = this.userInfo;
-    if (contentId && this.activeChecklist) {
-      await this.activeChecklist?.close(contentEndReason.SYSTEM_CLOSED);
-    }
-
-    if (this.activeChecklist || !userInfo?.externalId) {
-      return;
-    }
-
-    const checklistFromUrl = findChecklistFromUrl(this.checklists);
-    if (checklistFromUrl) {
-      this.activeChecklist = checklistFromUrl;
-      this.activeChecklist.start(contentStartReason.START_FROM_URL);
-      return;
-    }
-
-    if (contentId) {
-      const activeChecklist = this.checklists.find(
-        (checklist) => checklist.getContent().contentId === contentId,
-      );
-      if (!activeChecklist) {
+  async startChecklist(
+    contentId?: string,
+    reason: string = contentStartReason.START_CONDITION,
+    opts?: UserTourTypes.StartOptions,
+  ) {
+    try {
+      // If the app is not ready, do nothing
+      if (!this.isReady()) {
         return;
       }
-      this.activeChecklist = activeChecklist;
-      this.activeChecklist.start(reason);
-      return;
-    }
 
-    const latestActivatedChecklist = findLatestActivatedChecklist(this.checklists);
-    if (latestActivatedChecklist) {
-      const content = latestActivatedChecklist.getContent();
-      // if the checklist is not dismissed, start the next step
-      if (!checklistIsDimissed(content)) {
-        this.activeChecklist = latestActivatedChecklist;
-        this.activeChecklist.start(contentStartReason.START_FROM_SESSION);
+      // Start URL-based checklist first
+      const checklistFromUrl = findChecklistFromUrl(this.checklists);
+      if (await this.startUrlChecklist(checklistFromUrl)) {
         return;
       }
-    }
 
-    const sortedChecklists = this.checklists
-      .filter((checklist) => checklist.canAutoStart())
-      .sort((a, b) => compareContentPriorities(a, b));
+      // Start specific checklist by contentId
+      if (contentId) {
+        await this.startSpecificChecklist(contentId, reason, opts);
+        return;
+      }
 
-    if (sortedChecklists.length > 0) {
-      this.activeChecklist = sortedChecklists[0];
-      this.activeChecklist.autoStart(reason);
+      // Start latest activated checklist
+      if (await this.startLatestActivatedChecklist()) {
+        return;
+      }
+
+      // Start highest priority checklist
+      await this.startHighestPriorityChecklist(reason);
+    } catch (error) {
+      logger.error('Failed to start checklist:', error);
     }
   }
 
   /**
-   * Starts all registered launchers
+   * Starts URL-based checklist
+   * @returns true if checklist was started, false otherwise
+   */
+  private async startUrlChecklist(checklistFromUrl: Checklist | undefined): Promise<boolean> {
+    if (
+      !checklistFromUrl ||
+      checklistFromUrl.hasDismissed() ||
+      isSameChecklist(checklistFromUrl, this.activeChecklist)
+    ) {
+      return false;
+    }
+
+    if (this.activeChecklist) {
+      await this.activeChecklist.close(contentEndReason.URL_START_CLOSED);
+    }
+
+    this.activeChecklist = checklistFromUrl;
+    await this.activeChecklist.start(contentStartReason.START_FROM_URL);
+    return true;
+  }
+
+  /**
+   * Starts a specific checklist by contentId
+   */
+  private async startSpecificChecklist(
+    contentId: string,
+    reason: string,
+    opts?: UserTourTypes.StartOptions,
+  ): Promise<void> {
+    const activeChecklist = this.checklists.find(
+      (checklist) => checklist.getContent().contentId === contentId,
+    );
+    if (!activeChecklist || isSameChecklist(activeChecklist, this.activeChecklist)) {
+      return;
+    }
+
+    if (opts?.once && checklistIsSeen(activeChecklist.getContent().latestSession)) {
+      return;
+    }
+
+    if (this.activeChecklist) {
+      await this.activeChecklist.close(contentEndReason.USER_STARTED_OTHER_CONTENT);
+    }
+
+    this.activeChecklist = activeChecklist;
+    if (!opts?.continue) {
+      await this.activeChecklist.endLatestSession(contentEndReason.USER_STARTED_OTHER_CONTENT);
+    }
+    await this.activeChecklist.start(reason);
+  }
+
+  /**
+   * Starts latest activated checklist
+   * @returns true if checklist was started, false otherwise
+   */
+  private async startLatestActivatedChecklist(): Promise<boolean> {
+    if (this.activeChecklist) {
+      return false;
+    }
+
+    const latestActivatedChecklist = findLatestValidActivatedChecklist(
+      this.checklists.filter((checklist) => !checklist.isTemporarilyHidden()),
+    );
+
+    if (latestActivatedChecklist) {
+      this.activeChecklist = latestActivatedChecklist;
+      await this.activeChecklist.start(contentStartReason.START_FROM_SESSION);
+      return true;
+    }
+
+    return false;
+  }
+
+  /**
+   * Starts the highest priority checklist based on auto-start conditions and priority settings
+   * @param reason - The reason for starting the checklist
+   * @returns Promise that resolves when the checklist is started or rejected if no eligible checklist is found
+   */
+  private async startHighestPriorityChecklist(reason: string): Promise<void> {
+    // Early return if there's already an active checklist
+    if (this.activeChecklist) {
+      return;
+    }
+
+    try {
+      // Get auto-start eligible checklists sorted by priority and take the first one
+      const sortedChecklists = getAutoStartContentSortedByPriority(this.checklists);
+      const highestPriorityChecklist = sortedChecklists[0];
+
+      if (!highestPriorityChecklist) {
+        return;
+      }
+
+      // Set as active checklist and start it
+      this.activeChecklist = highestPriorityChecklist;
+      await this.activeChecklist.autoStart(reason);
+    } catch (error) {
+      logger.error('Failed to start highest priority checklist:', error);
+      // Reset active checklist on error to prevent stuck state
+      this.activeChecklist = undefined;
+    }
+  }
+
+  /**
+   * Starts all registered launchers that can auto-start, sorted by priority
    */
   async startLauncher() {
-    const sortedLaunchers = this.launchers
-      .filter((launcher) => launcher.canAutoStart())
-      .sort((a, b) => compareContentPriorities(a, b));
+    // If the app is not ready, do nothing
+    if (!this.isReady()) {
+      return;
+    }
 
-    for (const launcher of sortedLaunchers) {
-      launcher.autoStart();
+    try {
+      // Get all auto-start eligible launchers sorted by priority
+      const sortedLaunchers = getAutoStartContentSortedByPriority(this.launchers);
+
+      // Early return if no eligible launchers found
+      if (!sortedLaunchers.length) {
+        return;
+      }
+
+      // Start all eligible launchers in priority order
+      for (const launcher of sortedLaunchers) {
+        await launcher.autoStart();
+      }
+    } catch (error) {
+      logger.error('Failed to start launchers:', error);
     }
   }
 
@@ -670,65 +887,168 @@ export class App extends Evented {
    * Starts a tour with given content ID and reason
    * @param contentId - Optional content ID to start specific tour
    * @param reason - Reason for starting the tour
+   * @param opts - Optional start options
    */
-  async startTour(contentId: string | undefined, reason: string) {
-    const userInfo = this.userInfo;
-    if (contentId && this.activeTour) {
-      await this.activeTour?.close(contentEndReason.USER_CLOSED);
-    }
-
-    if (this.activeTour || !userInfo?.externalId) {
-      return;
-    }
-
-    const tourFromUrl = findTourFromUrl(this.tours);
-    if (tourFromUrl) {
-      this.activeTour = tourFromUrl;
-      this.activeTour.start(contentStartReason.START_FROM_URL);
-      return;
-    }
-
-    // If contentId is provided, start that specific tour
-    if (contentId) {
-      const activeTour = this.tours.find((tour) => tour.getContent().contentId === contentId);
-      if (!activeTour) {
+  async startTour(
+    contentId: string | undefined,
+    reason: string,
+    opts?: UserTourTypes.StartOptions,
+  ) {
+    try {
+      // If the app is not ready, do nothing
+      if (!this.isReady()) {
         return;
       }
-      this.activeTour = activeTour;
-      this.activeTour.start(contentStartReason.START_FROM_SESSION);
-      return;
-    }
 
-    const latestActivatedTour = findLatestActivatedTour(this.tours);
-    if (latestActivatedTour && !latestActivatedTour.hasDismissed()) {
-      const content = latestActivatedTour.getContent();
-      // if the tour is not dismissed, start the next step
-      if (!flowIsDismissed(content)) {
-        const latestStepNumber = findLatestStepNumber(content.latestSession?.bizEvent);
-
-        // Find the next step after the latest seen step
-        const steps = content.steps || [];
-        const cvid = steps[latestStepNumber >= 0 ? latestStepNumber : 0]?.cvid;
-        if (cvid) {
-          this.activeTour = latestActivatedTour;
-          await this.activeTour.start(reason, cvid);
-          return;
-        }
+      // Start URL-based tour
+      const urlTour = findTourFromUrl(this.tours);
+      if (await this.startUrlTour(urlTour)) {
+        return;
       }
+
+      // Start specific tour by contentId
+      if (contentId) {
+        await this.startSpecificTour(contentId, reason, opts);
+        return;
+      }
+
+      // Start latest activated tour
+      if (await this.startLatestActivatedTour()) {
+        return;
+      }
+
+      // Start highest priority tour
+      await this.startHighestPriorityTour(reason);
+    } catch (error) {
+      logger.error('Failed to start tour:', error);
+    }
+  }
+
+  /**
+   * Starts URL-based tour
+   * @returns true if tour was started, false otherwise
+   */
+  private async startUrlTour(urlTour: Tour | undefined): Promise<boolean> {
+    if (!urlTour || urlTour.hasDismissed() || isSameTour(urlTour, this.activeTour)) {
+      return false;
     }
 
-    // If no unfinished content found, start the highest priority tour
-    const autoStartTours = this.tours
-      .filter((tour) => tour.canAutoStart())
-      .sort((a, b) => compareContentPriorities(a, b));
+    if (this.activeTour) {
+      await this.activeTour.close(contentEndReason.URL_START_CLOSED);
+    }
+    const contentId = urlTour.getContent().contentId;
 
-    const activeTour = autoStartTours[0];
-    if (!activeTour) {
+    const latestActivatedTourAndCvid = findLatestActivatedTourAndCvid(this.tours, contentId);
+    const latestActivatedTour = latestActivatedTourAndCvid?.latestActivatedTour;
+    const cvid = latestActivatedTourAndCvid?.cvid;
+
+    if (isSameTour(urlTour, latestActivatedTour)) {
+      this.activeTour = latestActivatedTour;
+      await this.activeTour?.start(contentStartReason.START_FROM_SESSION, cvid);
+    } else {
+      this.activeTour = urlTour;
+      await this.activeTour.start(contentStartReason.START_FROM_URL);
+    }
+
+    return true;
+  }
+
+  /**
+   * Starts a specific tour by contentId
+   * @param contentId - The content ID of the tour to start
+   * @param reason - Reason for starting the tour
+   * @param opts - Optional start options
+   */
+  private async startSpecificTour(
+    contentId: string,
+    reason: string,
+    opts?: UserTourTypes.StartOptions,
+  ): Promise<void> {
+    const activeTour = this.tours.find((tour) => tour.getContent().contentId === contentId);
+    if (!activeTour || isSameTour(activeTour, this.activeTour)) {
       return;
     }
 
-    this.activeTour = activeTour;
-    this.activeTour.autoStart(reason);
+    if (opts?.once && flowIsSeen(activeTour.getContent().latestSession)) {
+      return;
+    }
+
+    if (this.activeTour) {
+      await this.activeTour.close(contentEndReason.USER_STARTED_OTHER_CONTENT);
+    }
+
+    const latestActivatedTourAndCvid = findLatestActivatedTourAndCvid(this.tours, contentId);
+    const latestActivatedTour = latestActivatedTourAndCvid?.latestActivatedTour;
+    const cvid = opts?.cvid;
+
+    if (isSameTour(activeTour, latestActivatedTour)) {
+      if (opts?.continue) {
+        this.activeTour = latestActivatedTour;
+        const continueCvid = latestActivatedTourAndCvid?.cvid;
+        await this.activeTour?.start(contentStartReason.START_FROM_SESSION, continueCvid);
+      } else {
+        this.activeTour = latestActivatedTour;
+        await this.activeTour?.endLatestSession(contentEndReason.USER_STARTED_OTHER_CONTENT);
+        await this.activeTour?.start(reason, cvid);
+      }
+    } else {
+      this.activeTour = activeTour;
+      await this.activeTour.start(reason, cvid);
+    }
+  }
+
+  /**
+   * Starts latest activated tour
+   * @returns true if tour was started, false otherwise
+   */
+  private async startLatestActivatedTour(): Promise<boolean> {
+    if (this.activeTour) {
+      return false;
+    }
+
+    const latestActivatedTourAndCvid = findLatestActivatedTourAndCvid(
+      this.tours.filter((tour) => !tour.isTemporarilyHidden()),
+    );
+    const latestActivatedTour = latestActivatedTourAndCvid?.latestActivatedTour;
+    const cvid = latestActivatedTourAndCvid?.cvid;
+
+    if (latestActivatedTour) {
+      this.activeTour = latestActivatedTour;
+      await this.activeTour.start(contentStartReason.START_FROM_SESSION, cvid);
+      return true;
+    }
+
+    return false;
+  }
+
+  /**
+   * Starts the highest priority tour based on auto-start conditions and priority settings
+   * @param reason - The reason for starting the tour
+   * @returns Promise that resolves when the tour is started or rejected if no eligible tour is found
+   */
+  private async startHighestPriorityTour(reason: string): Promise<void> {
+    // Early return if there's already an active tour
+    if (this.activeTour) {
+      return;
+    }
+
+    try {
+      // Get auto-start eligible tours sorted by priority and take the first one
+      const sortedTours = getAutoStartContentSortedByPriority(this.tours);
+      const highestPriorityTour = sortedTours[0];
+
+      if (!highestPriorityTour) {
+        return;
+      }
+
+      // Set as active tour and start it
+      this.activeTour = highestPriorityTour;
+      await this.activeTour.autoStart(reason);
+    } catch (error) {
+      logger.error('Failed to start highest priority tour:', error);
+      // Reset active tour on error to prevent stuck state
+      this.activeTour = undefined;
+    }
   }
 
   /**
@@ -768,23 +1088,25 @@ export class App extends Evented {
     }
   }
 
-  async initSdkConfig() {
-    const sdkConfig = await this.socket.getConfig(this.startOptions.token);
-    if (sdkConfig) {
-      this.sdkConfig = sdkConfig;
-    }
-  }
-
   /**
-   * Initializes theme data from server
+   * Fetches project settings from server
    */
-  async initThemeData() {
+  async fetchProjectSettings() {
     const { token } = this.startOptions;
-    const data = await this.socket.listThemes({ token });
+    if (!token) {
+      return;
+    }
+    const params = {
+      token,
+      userId: this.userInfo?.externalId,
+      companyId: this.companyInfo?.externalId,
+    };
+    const data: GetProjectSettingsResponse | null = await this.socket.getProjectSettings(params);
     if (data) {
-      this.themes = data;
+      this.sdkConfig = data.config;
+      this.themes = data.themes;
     } else {
-      logger.error('Failed to fetch themes!');
+      logger.error('Failed to fetch project settings!');
     }
   }
 
@@ -803,6 +1125,14 @@ export class App extends Evented {
       launchersStore: this.launchersStore,
       checklistsStore: this.checklistsStore,
     });
+  }
+
+  /**
+   * Checks if the app is ready to start
+   * @returns true if the app is ready to start, false otherwise
+   */
+  isReady() {
+    return this.container && this.root && this.userInfo?.externalId;
   }
 
   /**
@@ -959,31 +1289,6 @@ export class App extends Evented {
   }
 
   /**
-   * Starts polling for content updates
-   */
-  private startContentPolling() {
-    // Clear any existing interval
-    if (this.contentPollingInterval) {
-      clearInterval(this.contentPollingInterval);
-    }
-
-    // Set up new polling interval
-    this.contentPollingInterval = window?.setInterval(async () => {
-      this.refresh();
-    }, this.CONTENT_POLLING_INTERVAL);
-  }
-
-  /**
-   * Stops content polling
-   */
-  private stopContentPolling() {
-    if (this.contentPollingInterval) {
-      clearInterval(this.contentPollingInterval);
-      this.contentPollingInterval = undefined;
-    }
-  }
-
-  /**
    * Resets the application state
    */
   async reset() {
@@ -991,7 +1296,6 @@ export class App extends Evented {
     this.originContents = undefined;
     this.isMonitoring = false;
     this.tours = [];
-    this.stopContentPolling();
     await this.closeActiveTour();
     this.closeActiveChecklist();
   }

@@ -1,6 +1,6 @@
 'use client';
 
-import { cn, uuidV4 } from '@usertour-ui/ui-utils';
+import { cn, uuidV4 } from '@usertour/helpers';
 import isHotkey from 'is-hotkey';
 import React, { CSSProperties, useCallback, useMemo, useState } from 'react';
 import { Descendant, Text, createEditor } from 'slate';
@@ -232,7 +232,7 @@ export const PopperEditor = (props: PopperEditorProps) => {
           <Editable
             renderElement={renderElement}
             renderLeaf={renderLeaf}
-            placeholder="Enter text here…"
+            placeholder="Write text here…"
             spellCheck
             autoFocus={false}
             style={{ outline: 'none' }}
@@ -334,7 +334,7 @@ export const PopperEditorMini = (props: PopperEditorProps) => {
             renderElement={renderElement}
             renderLeaf={renderLeaf}
             className="grow"
-            placeholder="Enter text here…"
+            placeholder="Write text here…"
             spellCheck
             autoFocus={true}
             style={{ outline: 'none' }}

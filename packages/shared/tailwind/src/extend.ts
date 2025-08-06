@@ -4,12 +4,12 @@ export const extendSdk = {
       border: 'var(--usertour-border)',
       input: 'var(--usertour-input)',
       ring: 'var(--usertour-ring)',
-      link: 'var(--usertour-link)',
+      link: 'hsl(var(--usertour-link-color))',
       xbutton: 'var(--usertour-xbutton)',
       background: 'hsl(var(--usertour-background))',
       foreground: 'hsl(var(--usertour-foreground))',
-      hover: 'var(--usertour-hover)',
-      active: 'var(--usertour-active)',
+      hover: 'hsl(var(--usertour-main-hover-background-color))',
+      active: 'hsl(var(--usertour-main-active-background-color))',
       destructive: 'var(--usertour-destructive)',
       'destructive-foreground': 'var(--usertour-destructive-foreground)',
       'destructive-hover': 'var(--usertour-destructive-hover)',
@@ -23,6 +23,10 @@ export const extendSdk = {
       'card-foreground': 'var(--usertour-card-foreground)',
       progress: 'var(--usertour-progress-bar-color)',
       question: 'hsl(var(--usertour-question-color))',
+      brand: {
+        hover: 'hsl(var(--usertour-brand-hover-background-color))',
+        active: 'hsl(var(--usertour-brand-active-background-color))',
+      },
       checklist: {
         'trigger-background': 'var(--usertour-checklist-trigger-background-color)',
         'trigger-active-background': 'var(--usertour-checklist-trigger-active-background-color)',
@@ -53,6 +57,15 @@ export const extendSdk = {
     'sdk-line-height': 'var(--usertour-line-height)',
     'sdk-button': 'var(--usertour-button-height)',
     'sdk-progress': 'var(--usertour-progress-bar-height)',
+    'sdk-narrow-progress': 'var(--usertour-narrow-progress-bar-height)',
+    'sdk-squared-progress': 'var(--usertour-squared-progress-bar-height)',
+    'sdk-rounded-progress': 'var(--usertour-rounded-progress-bar-height)',
+    'sdk-dotted-progress': 'var(--usertour-dotted-progress-bar-height)',
+  },
+  width: {
+    'sdk-rounded-progress': 'calc(var(--usertour-rounded-progress-bar-height) * 2)',
+    'sdk-squared-progress': 'calc(var(--usertour-squared-progress-bar-height) * 3)',
+    'sdk-dotted-progress': 'var(--usertour-dotted-progress-bar-height)',
   },
   minWidth: {
     'sdk-button': 'var(--usertour-button-min-width)',
@@ -65,6 +78,7 @@ export const extendSdk = {
     'sdk-h1': 'var(--usertour-font-size-h1)',
     'sdk-h2': 'var(--usertour-font-size-h2)',
     'sdk-xs': 'calc(var(--usertour-font-size) * 0.75)',
+    'sdk-numbered-progress': 'var(--usertour-numbered-progress-bar-height)',
   },
   fontWeight: {
     'sdk-normal': 'var(--usertour-font-weight)',
@@ -82,10 +96,17 @@ export const extendSdk = {
       from: { height: 'var(--radix-accordion-content-height)' },
       to: { height: 0 },
     },
+    'pop-scale': {
+      '0%': { transform: 'scale(1)' },
+      '33%': { transform: 'scale(0.75)' },
+      '67%': { transform: 'scale(1.25)' },
+      '100%': { transform: 'scale(1)' },
+    },
   },
   animation: {
     'accordion-down': 'accordion-down 0.2s ease-out',
     'accordion-up': 'accordion-up 0.2s ease-out',
+    'pop-scale': 'pop-scale 500ms ease-out',
   },
 };
 

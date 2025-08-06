@@ -3,19 +3,19 @@
 import { useAppContext } from '@/contexts/app-context';
 import { useEnvironmentListContext } from '@/contexts/environment-list-context';
 import { EnvironmentCreateForm } from '@/pages/settings/environments/components/environment-create-form';
-import { Environment } from '@/types/project';
+import { Environment } from '@usertour/types';
 import { CheckIcon, PlusCircledIcon } from '@radix-ui/react-icons';
-import { Avatar, AvatarFallback, AvatarImage } from '@usertour-ui/avatar';
-import { Button } from '@usertour-ui/button';
+import { Avatar, AvatarFallback } from '@usertour-packages/avatar';
+import { Button } from '@usertour-packages/button';
 import {
   Command,
   CommandGroup,
   CommandItem,
   CommandList,
   CommandSeparator,
-} from '@usertour-ui/command';
-import { Popover, PopoverContent, PopoverTrigger } from '@usertour-ui/popover';
-import { cn } from '@usertour-ui/ui-utils';
+} from '@usertour-packages/command';
+import { Popover, PopoverContent, PopoverTrigger } from '@usertour-packages/popover';
+import { cn } from '@usertour/helpers';
 import * as React from 'react';
 import { useLocation, useNavigate } from 'react-router-dom';
 
@@ -32,14 +32,15 @@ export const AdminEnvSwitcher = () => {
     (env: Environment) => {
       if (env.id) {
         if (environment?.id) {
-          const newPath = location.pathname.replace(environment?.id, env.id);
+          const currentPath = location.pathname;
+          const newPath = currentPath.replace(environment.id, env.id);
           navigate(newPath);
         }
         setEnvironment(env);
       }
       setOpen(false);
     },
-    [environment],
+    [environment, location.pathname, navigate],
   );
   const handleCreate = () => {
     setShowNewEnvDialog(true);
@@ -83,12 +84,9 @@ export const AdminEnvSwitcher = () => {
                     className="text-sm"
                   >
                     <Avatar className="mr-2 h-5 w-5">
-                      <AvatarImage
-                        src="https://avatar.vercel.sh/acme-inc.png"
-                        alt={env.name}
-                        className="grayscale"
-                      />
-                      <AvatarFallback>SC</AvatarFallback>
+                      <AvatarFallback className="bg-blue-800 text-white text-xs">
+                        {env?.name?.slice(0, 2)}
+                      </AvatarFallback>
                     </Avatar>
                     {env.name}
                     <CheckIcon

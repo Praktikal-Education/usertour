@@ -1,7 +1,7 @@
 import { useQuery } from '@apollo/client';
 import { PaginationState } from '@tanstack/react-table';
-import { queryContent } from '@usertour-ui/gql';
-import { Content, PageInfo, Pagination } from '@usertour-ui/types';
+import { queryContent } from '@usertour-packages/gql';
+import { Content, PageInfo, Pagination } from '@usertour/types';
 import { ReactNode, createContext, useContext, useEffect, useState } from 'react';
 
 const defaultPagination = {
@@ -30,6 +30,7 @@ export interface ContentListContextValue {
   contents: Content[];
   totalCount: number;
   contentType: string | undefined;
+  loading: boolean;
 }
 
 export const ContentListContext = createContext<ContentListContextValue | undefined>(undefined);
@@ -62,7 +63,7 @@ export function ContentListProvider(props: ContentListProviderProps): JSX.Elemen
   const [pageCount, setPageCount] = useState(defaultPagination.pageSize);
   const [totalCount, setTotalCount] = useState<number>(0);
 
-  const { data, refetch } = useQuery(queryContent, {
+  const { data, refetch, loading } = useQuery(queryContent, {
     variables: {
       ...requestPagination,
       query: { environmentId, ...query },
@@ -141,6 +142,7 @@ export function ContentListProvider(props: ContentListProviderProps): JSX.Elemen
     contents,
     totalCount,
     contentType,
+    loading,
   };
 
   return <ContentListContext.Provider value={value}>{children}</ContentListContext.Provider>;

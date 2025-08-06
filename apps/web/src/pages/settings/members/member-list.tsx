@@ -1,4 +1,4 @@
-import { Separator } from '@usertour-ui/separator';
+import { Separator } from '@usertour-packages/separator';
 import { SettingsContent } from '../components/content';
 import { MemberListContent } from './components/member-list-content';
 import { MemberListHeader } from './components/member-list-header';
@@ -14,7 +14,7 @@ export const SettingsMemberList = () => {
   return (
     <MemberProvider projectId={project.id}>
       <SettingsContent>
-        <MemberListHeader projectId={project.id} />
+        <MemberListHeader />
         <Separator />
         <MemberListContent />
       </SettingsContent>

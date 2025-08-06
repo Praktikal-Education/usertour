@@ -5,7 +5,7 @@ import {
   ContentVersion,
   RulesCondition,
   Step,
-} from '@usertour-ui/types';
+} from '@usertour/types';
 import { CSSProperties, ReactNode } from 'react';
 import { UseMeasureRect } from 'react-use/lib/useMeasure';
 import { Descendant } from 'slate';
@@ -274,7 +274,12 @@ export interface ContentEditorProps {
   currentVersion?: ContentVersion;
   currentStep?: Step;
   actionItems?: string[] | undefined;
-  createStep?: (currentVersion: ContentVersion, sequence: number) => Promise<Step | undefined>;
+  createStep?: (
+    currentVersion: ContentVersion,
+    sequence: number,
+    stepType?: string,
+    duplicateStep?: Step,
+  ) => Promise<Step | undefined>;
   enabledElementTypes?: ContentEditorElementType[];
 }
 

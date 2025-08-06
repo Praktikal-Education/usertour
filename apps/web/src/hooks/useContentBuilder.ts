@@ -1,28 +1,33 @@
-import { useMutation } from '@apollo/client';
-import { createContentVersion } from '@usertour-ui/gql/src/gql/content';
-import { Content } from '@usertour-ui/types';
-import { useToast } from '@usertour-ui/use-toast';
+import { useAppContext } from '@/contexts/app-context';
+import { Content } from '@usertour/types';
+import { useToast } from '@usertour-packages/use-toast';
 import { useNavigate } from 'react-router-dom';
+import { useCreateContentVersionMutation } from '@usertour-packages/shared-hooks';
 
 export const useContentBuilder = () => {
   const navigate = useNavigate();
   const { toast } = useToast();
-  const [createVersion] = useMutation(createContentVersion);
+  const { invoke: createVersion } = useCreateContentVersionMutation();
+  const { environment } = useAppContext();
 
   const openBuilder = async (content: Content, contentType: string) => {
     let versionId = content?.editedVersionId;
 
     if (content?.published && content.editedVersionId === content.publishedVersionId) {
+      if (!content.editedVersionId) {
+        toast({
+          variant: 'destructive',
+          title: 'Failed to create a new version.',
+        });
+        return false;
+      }
+
       try {
-        const { data } = await createVersion({
-          variables: {
-            data: {
-              versionId: content.editedVersionId,
-            },
-          },
+        const newVersion = await createVersion({
+          versionId: content.editedVersionId,
         });
 
-        if (!data?.createContentVersion?.id) {
+        if (!newVersion?.id) {
           toast({
             variant: 'destructive',
             title: 'Failed to create a new version.',
@@ -30,7 +35,7 @@ export const useContentBuilder = () => {
           return false;
         }
 
-        versionId = data.createContentVersion.id;
+        versionId = newVersion.id;
       } catch (error) {
         toast({
           variant: 'destructive',
@@ -41,7 +46,7 @@ export const useContentBuilder = () => {
       }
     }
 
-    navigate(`/env/${content?.environmentId}/${contentType}/${content?.id}/builder/${versionId}`);
+    navigate(`/env/${environment?.id}/${contentType}/${content?.id}/builder/${versionId}`);
     return true;
   };
 

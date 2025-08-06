@@ -1,27 +1,32 @@
 import { useAttributeListContext } from '@/contexts/attribute-list-context';
 import { useSegmentListContext } from '@/contexts/segment-list-context';
 import { QuestionMarkCircledIcon } from '@radix-ui/react-icons';
-import { Label } from '@usertour-ui/label';
+import { Label } from '@usertour-packages/label';
 import {
   Rules,
   RulesFrequency,
   RulesIfCompleted,
   RulesPriority,
   RulesWait,
-} from '@usertour-ui/shared-components';
-import { useContentListQuery } from '@usertour-ui/shared-hooks';
-import { getAuthToken } from '@usertour-ui/shared-utils';
-import { conditionsIsSame } from '@usertour-ui/shared-utils';
-import { Switch } from '@usertour-ui/switch';
-import { Tooltip, TooltipContent, TooltipProvider, TooltipTrigger } from '@usertour-ui/tooltip';
+} from '@usertour-packages/shared-components';
+import { useContentListQuery } from '@usertour-packages/shared-hooks';
+import { deepClone, getAuthToken } from '@usertour/helpers';
+import { conditionsIsSame } from '@usertour/helpers';
+import { Switch } from '@usertour-packages/switch';
+import {
+  Tooltip,
+  TooltipContent,
+  TooltipProvider,
+  TooltipTrigger,
+} from '@usertour-packages/tooltip';
 import {
   Content,
   ContentPriority,
   Frequency,
   RulesCondition,
   autoStartRulesSetting,
-} from '@usertour-ui/types';
-import { useCallback, useId, useState } from 'react';
+} from '@usertour/types';
+import { useCallback, useId, useState, useEffect } from 'react';
 
 export enum ContentDetailAutoStartRulesType {
   START_RULES = 'start-rules',
@@ -62,9 +67,16 @@ export const ContentDetailAutoStartRules = (props: ContentDetailAutoStartRulesPr
   } = props;
 
   const [enabled, setEnabled] = useState(defaultEnabled);
-  const [conditions, setConditions] = useState<RulesCondition[]>(
-    JSON.parse(JSON.stringify(defaultConditions)),
-  );
+  const [conditions, setConditions] = useState<RulesCondition[]>(deepClone(defaultConditions));
+
+  // Sync internal state with props when they change
+  useEffect(() => {
+    setEnabled(defaultEnabled);
+  }, [defaultEnabled]);
+
+  useEffect(() => {
+    setConditions(deepClone(defaultConditions));
+  }, [defaultConditions]);
 
   const updateSettings = useCallback(
     (updates: Partial<autoStartRulesSetting>) => {
@@ -77,7 +89,7 @@ export const ContentDetailAutoStartRules = (props: ContentDetailAutoStartRulesPr
     (conds: RulesCondition[], hasError: boolean) => {
       if (hasError || conditionsIsSame(conds, conditions)) return;
 
-      const newConditions = JSON.parse(JSON.stringify(conds));
+      const newConditions = deepClone(conds);
       setConditions(newConditions);
       onDataChange(enabled, newConditions, setting);
     },

@@ -1,7 +1,7 @@
 import { AttributeBizType, AttributeDataType } from '@/attributes/models/attribute.model';
 import { InitThemeInput } from '@/themes/dto/theme.input';
 import { Attribute, Prisma } from '@prisma/client';
-import { BizEvents, CompanyAttributes, EventAttributes, UserAttributes } from '../consts/attribute';
+import { BizEvents, EventAttributes, UserAttributes, CompanyAttributes } from '@usertour/types';
 
 export const initializationThemes: InitThemeInput[] = [
   {
@@ -83,18 +83,26 @@ export const initializationThemes: InitThemeInput[] = [
       tooltip: { width: 300, notchSize: 20 },
       xbutton: { color: 'Auto' },
       progress: {
+        enabled: true,
         color: 'Auto',
+        type: 'full-width',
+        position: 'top',
         height: 2,
+        narrowHeight: 5,
+        chainSquaredHeight: 4,
+        chainRoundedHeight: 6,
+        dotsHeight: 10,
+        numberedHeight: 12,
       },
       checklist: {
         width: 360,
-        zIndex: 1000,
         placement: {
           position: 'rightBottom',
           positionOffsetX: 100,
           positionOffsetY: 20,
         },
-        checkmarkColor: '#1d4ed8',
+        checkmarkColor: '#4ade80',
+        completedTaskTextDecoration: 'line-through',
       },
       checklistLauncher: {
         color: {
@@ -226,18 +234,26 @@ export const initializationThemes: InitThemeInput[] = [
       tooltip: { width: 300, notchSize: 20 },
       xbutton: { color: 'Auto' },
       progress: {
+        enabled: true,
         color: 'Auto',
+        type: 'full-width',
+        position: 'top',
         height: 2,
+        narrowHeight: 5,
+        chainSquaredHeight: 4,
+        chainRoundedHeight: 6,
+        dotsHeight: 10,
+        numberedHeight: 12,
       },
       checklist: {
         width: 360,
-        zIndex: 1000,
         placement: {
           position: 'rightBottom',
           positionOffsetX: 100,
           positionOffsetY: 20,
         },
-        checkmarkColor: '#1d4ed8',
+        checkmarkColor: '#4ade80',
+        completedTaskTextDecoration: 'line-through',
       },
       checklistLauncher: {
         color: {
@@ -292,7 +308,7 @@ export const initializationThemes: InitThemeInput[] = [
   },
 ];
 
-const defaultEvents = [
+export const defaultEvents = [
   {
     displayName: 'Page Viewed',
     codeName: BizEvents.PAGE_VIEWED,
@@ -327,6 +343,11 @@ const defaultEvents = [
       EventAttributes.FLOW_ID,
       EventAttributes.FLOW_NAME,
       EventAttributes.FLOW_SESSION_ID,
+      EventAttributes.FLOW_STEP_CVID,
+      EventAttributes.FLOW_STEP_ID,
+      EventAttributes.FLOW_STEP_NAME,
+      EventAttributes.FLOW_STEP_NUMBER,
+      EventAttributes.FLOW_STEP_PROGRESS,
       EventAttributes.FLOW_VERSION_ID,
       EventAttributes.FLOW_VERSION_NUMBER,
       EventAttributes.LOCALE_CODE,
@@ -382,6 +403,11 @@ const defaultEvents = [
       EventAttributes.FLOW_ID,
       EventAttributes.FLOW_NAME,
       EventAttributes.FLOW_SESSION_ID,
+      EventAttributes.FLOW_STEP_CVID,
+      EventAttributes.FLOW_STEP_ID,
+      EventAttributes.FLOW_STEP_NAME,
+      EventAttributes.FLOW_STEP_NUMBER,
+      EventAttributes.FLOW_STEP_PROGRESS,
       EventAttributes.FLOW_VERSION_ID,
       EventAttributes.FLOW_VERSION_NUMBER,
       EventAttributes.LOCALE_CODE,

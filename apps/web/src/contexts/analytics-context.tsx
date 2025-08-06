@@ -1,9 +1,10 @@
 import { useQuery } from '@apollo/client';
-import { queryContentAnalytics } from '@usertour-ui/gql';
-import { AnalyticsData, AnalyticsQuery } from '@usertour-ui/types';
+import { queryContentAnalytics } from '@usertour-packages/gql';
+import { AnalyticsData, AnalyticsQuery } from '@usertour/types';
 import { endOfDay, startOfDay, subDays } from 'date-fns';
 import { ReactNode, createContext, useContext, useEffect, useState } from 'react';
 import { DateRange } from 'react-day-picker';
+import { useAppContext } from './app-context';
 
 export interface AnalyticsProviderProps {
   children?: ReactNode;
@@ -12,6 +13,7 @@ export interface AnalyticsProviderProps {
 
 export interface AnalyticsContextValue {
   analyticsData: AnalyticsData | undefined;
+  loading: boolean;
   refetch: any;
   query: AnalyticsQuery;
   setQuery: React.Dispatch<React.SetStateAction<AnalyticsQuery>>;
@@ -33,11 +35,13 @@ export function AnalyticsProvider(props: AnalyticsProviderProps): JSX.Element {
     to: endOfDay(new Date(now)),
   };
   const [dateRange, setDateRange] = useState<DateRange | undefined>(defaultDateRange);
+  const { environment } = useAppContext();
 
   const timezone = Intl.DateTimeFormat().resolvedOptions().timeZone;
 
-  const { data, refetch } = useQuery(queryContentAnalytics, {
+  const { data, refetch, loading } = useQuery(queryContentAnalytics, {
     variables: {
+      environmentId: environment?.id,
       contentId,
       startDate: dateRange?.from ? startOfDay(new Date(dateRange.from)).toISOString() : undefined,
       endDate: dateRange?.to ? endOfDay(new Date(dateRange.to)).toISOString() : undefined,
@@ -54,6 +58,7 @@ export function AnalyticsProvider(props: AnalyticsProviderProps): JSX.Element {
   const value: AnalyticsContextValue = {
     refetch,
     analyticsData,
+    loading,
     query,
     setQuery,
     dateRange,

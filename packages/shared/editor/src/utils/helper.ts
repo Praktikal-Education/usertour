@@ -1,4 +1,4 @@
-import { uuidV4 } from '@usertour-ui/ui-utils';
+import { uuidV4 } from '@usertour/helpers';
 import {
   ContentEditorClickableElement,
   ContentEditorElement,
@@ -8,7 +8,9 @@ import {
   ContentEditorRootColumn,
   ContentEditorRootElement,
 } from '../types/editor';
-import { isEmptyString } from '@usertour-ui/shared-utils';
+import { isEmptyString } from '@usertour/helpers';
+import { Step } from '@usertour/types';
+import { cuid } from '@usertour/helpers';
 
 export const EmptyGroup = {
   element: { type: 'group' },
@@ -47,7 +49,7 @@ export const EmptyEmbed = {
 export const EmptyText = {
   element: {
     type: 'text',
-    data: [{ type: 'paragraph', children: [{ text: 'this is a text' }] }],
+    data: [{ type: 'paragraph', children: [{ text: 'Write text here' }] }],
   },
 } as ContentEditorRootElement;
 
@@ -133,7 +135,7 @@ export const groupData = [
         children: [
           {
             type: 'paragraph',
-            children: [{ text: 'this is a text' }],
+            children: [{ text: 'Write text here' }],
           },
         ],
       },
@@ -145,7 +147,7 @@ export const groupData = [
         children: [
           {
             type: 'paragraph',
-            children: [{ text: 'this is second text' }],
+            children: [{ text: 'Write text here' }],
           },
         ],
       },
@@ -212,7 +214,7 @@ export const createValue1 = [
                   type: 'paragraph',
                   children: [
                     {
-                      text: 'this is a content',
+                      text: 'Write text here',
                     },
                   ],
                 },
@@ -257,7 +259,7 @@ export const createValue2 = [
                   type: 'paragraph',
                   children: [
                     {
-                      text: 'this is a text',
+                      text: 'Write text here',
                     },
                   ],
                   align: 'left',
@@ -790,7 +792,7 @@ export const createValue6 = [
                   type: 'paragraph',
                   children: [
                     {
-                      text: 'Enter text here',
+                      text: 'Write text here',
                     },
                   ],
                 },
@@ -1023,4 +1025,64 @@ export const extractQuestionData = (data: ContentEditorRoot[]): ContentEditorQue
   }
 
   return result;
+};
+
+// Create base step data based on type
+export const getDefaultDataForType = (type: string) => {
+  switch (type) {
+    case 'modal':
+      return createValue4; // Use createValue4 for modal (has image and buttons)
+    case 'hidden':
+      return createValue2; // Use createValue2 for hidden (has buttons)
+    default:
+      return createValue1; // Use createValue1 for tooltip (simple text)
+  }
+};
+
+// Helper function to create a copy of a step
+export const createStepCopy = (originalStep: Step, sequence: number): Step => {
+  const { id, cvid, updatedAt, data, createdAt, ...rest } = originalStep;
+
+  // Process question elements to replace cvid with new cuid
+  const processQuestionElements = (contents: ContentEditorRoot[]): ContentEditorRoot[] => {
+    return contents.map((group) => ({
+      ...group,
+      children: group.children.map((column) => ({
+        ...column,
+        children: column.children.map((item) => {
+          if (isQuestionElement(item.element)) {
+            const questionElement = item.element as ContentEditorQuestionElement;
+            return {
+              ...item,
+              element: {
+                ...questionElement,
+                data: {
+                  ...questionElement.data,
+                  cvid: cuid(),
+                },
+              } as ContentEditorQuestionElement,
+            };
+          }
+          return item;
+        }),
+      })),
+    }));
+  };
+
+  // Check if data exists and is an array that can be processed
+  let processedData = data;
+  try {
+    processedData = data && Array.isArray(data) ? processQuestionElements(data) : data;
+  } catch (error) {
+    console.error('Error processing step data during copy:', error);
+    // Fallback to original data if processing fails
+    processedData = data;
+  }
+
+  return {
+    ...rest,
+    data: processedData,
+    name: `${originalStep.name} (copy)`,
+    sequence,
+  };
 };

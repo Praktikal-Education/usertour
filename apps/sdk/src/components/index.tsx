@@ -10,7 +10,7 @@ import '../index.css';
 const WIDGETS = {
   Tour: React.lazy(() =>
     import('./tour').then((module) => ({
-      default: module.Tour,
+      default: module.TourWidget,
     })),
   ),
   Launcher: React.lazy(() =>
@@ -25,12 +25,11 @@ const WIDGETS = {
   ),
 };
 
-// Add type definitions for props
-type AppProps = {
+interface AppProps {
   toursStore: ExternalStore<Tour[]>;
   launchersStore: ExternalStore<Launcher[]>;
   checklistsStore: ExternalStore<Checklist[]>;
-};
+}
 
 // Optimize App component with better type safety and error boundaries
 const App = ({ toursStore, launchersStore, checklistsStore }: AppProps) => {
@@ -44,14 +43,14 @@ const App = ({ toursStore, launchersStore, checklistsStore }: AppProps) => {
 
   return (
     <React.StrictMode>
-      <React.Suspense fallback={<div>Loading...</div>}>
-        {tours.map((tour) => (
+      <React.Suspense fallback={null}>
+        {tours?.map((tour) => (
           <WIDGETS.Tour tour={tour} key={tour.getContent().contentId} />
         ))}
-        {launchers.map((launcher) => (
+        {launchers?.map((launcher) => (
           <WIDGETS.Launcher launcher={launcher} key={launcher.getContent().contentId} />
         ))}
-        {checklists.map((checklist) => (
+        {checklists?.map((checklist) => (
           <WIDGETS.Checklist checklist={checklist} key={checklist.getContent().contentId} />
         ))}
       </React.Suspense>

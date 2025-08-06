@@ -1,6 +1,6 @@
-import { EXTENSION_CONTENT_RULES } from '@usertour-ui/constants';
-import { TextInputIcon } from '@usertour-ui/icons';
-import { Input } from '@usertour-ui/input';
+import { EXTENSION_CONTENT_RULES } from '@usertour-packages/constants';
+import { TextInputIcon } from '@usertour-packages/icons';
+import { Input } from '@usertour-packages/input';
 import {
   Select,
   SelectContent,
@@ -8,14 +8,15 @@ import {
   SelectPortal,
   SelectTrigger,
   SelectValue,
-} from '@usertour-ui/select';
-import { getTextInputError } from '@usertour-ui/shared-utils';
-import { ElementSelectorPropsData } from '@usertour-ui/types';
+} from '@usertour-packages/select';
+import { getTextInputError } from '@usertour/helpers';
+import { ElementSelectorPropsData } from '@usertour/types';
 import {
   ChangeEvent,
   Dispatch,
   SetStateAction,
   createContext,
+  useCallback,
   useContext,
   useEffect,
   useState,
@@ -135,19 +136,50 @@ export const RulesTextInput = (props: RulesTextInputProps) => {
   const { currentContent, token, onElementChange, disabled } = useRulesContext();
 
   useEffect(() => {
-    if (open) {
-      return;
-    }
     const updates = {
       logic: conditionValue,
       elementData,
       value: inputValue,
     };
     const { showError, errorInfo } = getTextInputError(updates);
-    setOpenError(showError);
-    setErrorInfo(errorInfo);
-    updateConditionData(index, updates);
-  }, [conditionValue, elementData, inputValue, open]);
+    if (showError && !open) {
+      setErrorInfo(errorInfo);
+      setOpenError(true);
+    }
+  }, [conditionValue, elementData, inputValue, open, setErrorInfo, setOpenError]);
+
+  const handleOnOpenChange = useCallback(
+    (open: boolean) => {
+      setOpen(open);
+      if (open) {
+        setErrorInfo('');
+        setOpenError(false);
+        return;
+      }
+      const updates = {
+        logic: conditionValue,
+        elementData,
+        value: inputValue,
+      };
+      const { showError, errorInfo } = getTextInputError(updates);
+      if (showError) {
+        setErrorInfo(errorInfo);
+        setOpenError(true);
+        return;
+      }
+      updateConditionData(index, updates);
+    },
+    [
+      conditionValue,
+      elementData,
+      inputValue,
+      open,
+      setErrorInfo,
+      setOpenError,
+      index,
+      updateConditionData,
+    ],
+  );
 
   const value = {
     conditionValue,
@@ -168,7 +200,7 @@ export const RulesTextInput = (props: RulesTextInputProps) => {
               <RulesConditionIcon>
                 <TextInputIcon width={16} height={16} />
               </RulesConditionIcon>
-              <RulesPopover onOpenChange={setOpen} open={open}>
+              <RulesPopover onOpenChange={handleOnOpenChange} open={open}>
                 <RulesPopoverTrigger className="space-y-1">
                   <div className="grow pr-6 text-sm text-wrap break-all">
                     The value of this input{' '}

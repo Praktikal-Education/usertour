@@ -15,6 +15,7 @@ export interface ChecklistData {
   initialDisplay: ChecklistInitialDisplay;
   completionOrder: ChecklistCompletionOrder;
   preventDismissChecklist: boolean;
+  autoDismissChecklist: boolean;
   items: ChecklistItemType[];
   content: any;
 }
@@ -24,7 +25,9 @@ export interface ChecklistItemType {
   name: string;
   description?: string;
   isCompleted: boolean;
+  isShowAnimation?: boolean;
   isVisible?: boolean;
+  isClicked?: boolean;
   clickedActions: RulesCondition[];
   completeConditions: RulesCondition[];
   onlyShowTask: boolean;
@@ -36,6 +39,7 @@ export const DEFAULT_CHECKLIST_DATA: ChecklistData = {
   initialDisplay: ChecklistInitialDisplay.EXPANDED,
   completionOrder: ChecklistCompletionOrder.ANY,
   preventDismissChecklist: false,
+  autoDismissChecklist: false,
   items: [],
   content: [],
 };

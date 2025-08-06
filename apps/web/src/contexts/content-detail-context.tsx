@@ -1,6 +1,6 @@
 import { useQuery } from '@apollo/client';
-import { getContent } from '@usertour-ui/gql';
-import { Content } from '@usertour-ui/types';
+import { getContent } from '@usertour-packages/gql';
+import { Content } from '@usertour/types';
 import { ReactNode, createContext, useContext, useEffect, useState } from 'react';
 
 export interface ContentDetailProviderProps {
@@ -11,6 +11,7 @@ export interface ContentDetailProviderProps {
 
 export interface ContentDetailContextValue {
   content: Content | null;
+  loading: boolean;
   refetch: any;
   contentType: string | undefined;
 }
@@ -19,7 +20,7 @@ export const ContentDetailContext = createContext<ContentDetailContextValue | un
 export function ContentDetailProvider(props: ContentDetailProviderProps): JSX.Element {
   const { children, contentId, contentType } = props;
   const [content, setContent] = useState<Content | null>(null);
-  const { data, refetch } = useQuery(getContent, {
+  const { data, refetch, loading } = useQuery(getContent, {
     variables: { contentId },
   });
 
@@ -31,6 +32,7 @@ export function ContentDetailProvider(props: ContentDetailProviderProps): JSX.El
 
   const value: ContentDetailContextValue = {
     content,
+    loading,
     refetch,
     contentType,
   };

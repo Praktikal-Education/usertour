@@ -104,6 +104,8 @@ model Project {
   customerId     String?
   /// Stripe subscription ID
   subscriptionId String?
+  /// License
+  license        String?
   users          UserOnProject[]
   environments   Environment[]
   themes         Theme[]
@@ -111,6 +113,8 @@ model Project {
   events         Event[]
   localizations  Localization[]
   invites        Invite[]
+  contents       Content[]
+  segments       Segment[]
 }
 
 model UserOnProject {
@@ -128,19 +132,22 @@ model UserOnProject {
 }
 
 model Environment {
-  id           String        @id @default(cuid())
-  createdAt    DateTime      @default(now()) @db.Timestamptz(6)
-  updatedAt    DateTime      @updatedAt @db.Timestamptz(6)
-  name         String?
-  token        String        @default(cuid())
-  deleted      Boolean       @default(false)
-  project      Project       @relation(fields: [projectId], references: [id])
-  projectId    String
-  contents     Content[]
-  bizUsers     BizUser[]
-  bizCompanies BizCompany[]
-  segments     Segment[]
-  accessTokens AccessToken[]
+  id                    String                 @id @default(cuid())
+  createdAt             DateTime               @default(now()) @db.Timestamptz(6)
+  updatedAt             DateTime               @updatedAt @db.Timestamptz(6)
+  name                  String?
+  token                 String                 @default(cuid())
+  deleted               Boolean                @default(false)
+  project               Project                @relation(fields: [projectId], references: [id])
+  projectId             String
+  contents              Content[]
+  bizUsers              BizUser[]
+  bizCompanies          BizCompany[]
+  segments              Segment[]
+  accessTokens          AccessToken[]
+  contentOnEnvironments ContentOnEnvironment[]
+  bizSessions           BizSession[]
+  integrations          Integration[]
 }
 
 model AccessToken {
@@ -162,40 +169,61 @@ model AccessToken {
 }
 
 model Theme {
-  id        String    @id @default(cuid())
-  createdAt DateTime  @default(now()) @db.Timestamptz(6)
-  updatedAt DateTime  @updatedAt @db.Timestamptz(6)
-  name      String    @default("")
-  isDefault Boolean   @default(false)
-  isSystem  Boolean   @default(false)
-  deleted   Boolean   @default(false)
-  project   Project   @relation(fields: [projectId], references: [id])
-  projectId String
+  id         String    @id @default(cuid())
+  createdAt  DateTime  @default(now()) @db.Timestamptz(6)
+  updatedAt  DateTime  @updatedAt @db.Timestamptz(6)
+  name       String    @default("")
+  isDefault  Boolean   @default(false)
+  isSystem   Boolean   @default(false)
+  deleted    Boolean   @default(false)
+  project    Project   @relation(fields: [projectId], references: [id])
+  projectId  String
   // settings  String
-  settings  Json?     @db.JsonB
-  steps     Step[]
-  versions  Version[]
+  settings   Json?     @db.JsonB
+  /// Conditional variations
+  variations Json?     @db.JsonB
+  steps      Step[]
+  versions   Version[]
 }
 
 model Content {
-  id                 String       @id @default(cuid())
-  createdAt          DateTime     @default(now()) @db.Timestamptz(6)
-  updatedAt          DateTime     @updatedAt @db.Timestamptz(6)
-  publishedAt        DateTime?    @default(now()) @db.Timestamptz(6)
-  name               String?
-  buildUrl           String?
-  type               String       @default("flow")
-  published          Boolean      @default(false)
-  deleted            Boolean      @default(false)
-  environment        Environment  @relation(fields: [environmentId], references: [id])
+  id                    String                 @id @default(cuid())
+  createdAt             DateTime               @default(now()) @db.Timestamptz(6)
+  updatedAt             DateTime               @updatedAt @db.Timestamptz(6)
+  publishedAt           DateTime?              @default(now()) @db.Timestamptz(6)
+  name                  String?
+  buildUrl              String?
+  type                  String                 @default("flow")
+  published             Boolean                @default(false)
+  deleted               Boolean                @default(false)
+  environment           Environment?           @relation(fields: [environmentId], references: [id])
+  environmentId         String?
+  project               Project?               @relation(fields: [projectId], references: [id])
+  projectId             String?
+  config                Json?                  @db.JsonB
+  versions              Version[]              @relation("ContentVersions")
+  editedVersion         Version?               @relation("EditedVersion", fields: [editedVersionId], references: [id])
+  publishedVersion      Version?               @relation("publishedVersion", fields: [publishedVersionId], references: [id])
+  publishedVersionId    String?                @unique
+  editedVersionId       String?                @unique
+  bizSession            BizSession[]
+  contentOnEnvironments ContentOnEnvironment[]
+}
+
+model ContentOnEnvironment {
+  id                 String      @id @default(cuid())
+  createdAt          DateTime    @default(now()) @db.Timestamptz(6)
+  updatedAt          DateTime    @updatedAt @db.Timestamptz(6)
+  environment        Environment @relation(fields: [environmentId], references: [id])
   environmentId      String
-  config             Json?        @db.JsonB
-  versions           Version[]    @relation("ContentVersions")
-  editedVersion      Version?     @relation("EditedVersion", fields: [editedVersionId], references: [id])
-  publishedVersion   Version?     @relation("publishedVersion", fields: [publishedVersionId], references: [id])
-  publishedVersionId String?      @unique
-  editedVersionId    String?      @unique
-  bizSession         BizSession[]
+  content            Content     @relation(fields: [contentId], references: [id])
+  contentId          String
+  published          Boolean     @default(false)
+  publishedAt        DateTime    @default(now()) @db.Timestamptz(6)
+  publishedVersion   Version     @relation(fields: [publishedVersionId], references: [id])
+  publishedVersionId String
+
+  @@unique([environmentId, contentId])
 }
 
 model Version {
@@ -216,6 +244,7 @@ model Version {
   publishByContent      Content?                @relation("publishedVersion")
   bizSession            BizSession[]
   versionOnLocalization VersionOnLocalization[]
+  contentOnEnvironment  ContentOnEnvironment[]
 
   @@unique([contentId, sequence])
 }
@@ -291,6 +320,7 @@ model Attribute {
   description      String             @default("")
   dataType         Int                @default(1)
   randomMax        Int                @default(1)
+  source           String             @default("internal")
   predefined       Boolean            @default(false)
   deleted          Boolean            @default(false)
   attributeOnEvent AttributeOnEvent[]
@@ -357,8 +387,14 @@ model Segment {
   name                  String                @default("")
   bizType               Int                   @default(1)
   dataType              Int                   @default(1)
-  environment           Environment           @relation(fields: [environmentId], references: [id])
-  environmentId         String
+  /// Source of the segment (e.g., "mixpanel", "heap", etc.)
+  source                String?               @default("internal")
+  /// Source ID of the segment (e.g., "mixpanel_cohort_id")
+  sourceId              String?
+  environment           Environment?          @relation(fields: [environmentId], references: [id])
+  environmentId         String?
+  project               Project?              @relation(fields: [projectId], references: [id])
+  projectId             String?
   columns               Json?                 @db.JsonB
   data                  Json?                 @db.JsonB
   deleted               Boolean               @default(false)
@@ -425,23 +461,25 @@ model AttributeOnEvent {
 }
 
 model BizSession {
-  id           String      @id @default(cuid())
-  createdAt    DateTime    @default(now()) @db.Timestamptz(6)
-  updatedAt    DateTime    @updatedAt @db.Timestamptz(6)
-  deleted      Boolean     @default(false)
-  state        Int         @default(0)
-  data         Json?       @db.JsonB
-  progress     Int         @default(0)
-  projectId    String      @default("")
-  bizUser      BizUser     @relation(fields: [bizUserId], references: [id])
-  bizUserId    String
-  bizCompany   BizCompany? @relation(fields: [bizCompanyId], references: [id])
-  bizCompanyId String?
-  content      Content     @relation(fields: [contentId], references: [id])
-  contentId    String
-  version      Version     @relation(fields: [versionId], references: [id])
-  versionId    String
-  bizEvent     BizEvent[]
+  id            String       @id @default(cuid())
+  createdAt     DateTime     @default(now()) @db.Timestamptz(6)
+  updatedAt     DateTime     @updatedAt @db.Timestamptz(6)
+  deleted       Boolean      @default(false)
+  state         Int          @default(0)
+  data          Json?        @db.JsonB
+  progress      Int          @default(0)
+  projectId     String       @default("")
+  environment   Environment? @relation(fields: [environmentId], references: [id])
+  environmentId String?
+  bizUser       BizUser      @relation(fields: [bizUserId], references: [id])
+  bizUserId     String
+  bizCompany    BizCompany?  @relation(fields: [bizCompanyId], references: [id])
+  bizCompanyId  String?
+  content       Content      @relation(fields: [contentId], references: [id])
+  contentId     String
+  version       Version      @relation(fields: [versionId], references: [id])
+  versionId     String
+  bizEvent      BizEvent[]
 
   @@index([bizUserId])
   @@index([contentId])
@@ -464,22 +502,24 @@ model BizEvent {
 }
 
 model BizAnswer {
-  id           String   @id @default(cuid())
-  createdAt    DateTime @default(now()) @db.Timestamptz(6)
-  updatedAt    DateTime @updatedAt @db.Timestamptz(6)
-  bizEventId   String
-  bizSessionId String
-  contentId    String
-  versionId    String
-  bizUserId    String
-  cvid         String
-  numberAnswer Int?
-  textAnswer   String?
-  listAnswer   String[]
+  id            String   @id @default(cuid())
+  createdAt     DateTime @default(now()) @db.Timestamptz(6)
+  updatedAt     DateTime @updatedAt @db.Timestamptz(6)
+  bizEventId    String
+  bizSessionId  String
+  contentId     String
+  versionId     String
+  bizUserId     String
+  cvid          String
+  environmentId String?
+  numberAnswer  Int?
+  textAnswer    String?
+  listAnswer    String[]
 
   @@unique([bizSessionId, cvid])
   @@index([contentId, cvid, bizUserId])
   @@index([versionId, cvid, bizUserId])
+  @@index([environmentId, contentId, cvid, bizUserId])
 }
 
 model RefreshToken {
@@ -535,7 +575,7 @@ model Subscription {
   subscriptionId String    @unique
   /// Stripe price lookup key
   lookupKey      String
-  /// Plan type (free, pro, max, etc.)
+  /// Plan type (hobby, starter, growth, business)
   planType       String
   /// Billing interval (monthly, yearly, etc.)
   interval       String
@@ -581,4 +621,106 @@ model CheckoutSession {
   updatedAt      DateTime @default(now()) @updatedAt @db.Timestamptz()
 
   @@index([sessionId])
+}
+
+model Integration {
+  id                        String                     @id @default(cuid())
+  /// code of rntegration (e.g., "ga", "mixpanel", "posthog")
+  provider                  String
+  /// api key or  of integration 
+  key                       String                     @default("")
+  /// access token of integration
+  accessToken               String                     @unique @default(cuid())
+  /// JSON schema for configuration (optional)
+  config                    Json?                      @db.JsonB
+  /// Whether the integration is enabled
+  enabled                   Boolean                    @default(false)
+  /// environment of integration
+  environment               Environment                @relation(fields: [environmentId], references: [id])
+  /// environment id
+  environmentId             String
+  /// Create timestamp
+  createdAt                 DateTime                   @default(now()) @db.Timestamptz()
+  /// Update timestamp
+  updatedAt                 DateTime                   @default(now()) @updatedAt @db.Timestamptz()
+  /// integration logs
+  integrationLogs           IntegrationLog[]
+  integrationOAuth          IntegrationOAuth?
+  integrationObjectMappings IntegrationObjectMapping[]
+
+  @@unique([environmentId, provider])
+}
+
+model IntegrationOAuth {
+  /// primary key
+  id                String      @id @default(cuid())
+  /// create timestamp
+  createdAt         DateTime    @default(now()) @db.Timestamptz(6)
+  /// update timestamp
+  updatedAt         DateTime    @updatedAt @db.Timestamptz(6)
+  /// access token
+  accessToken       String
+  /// refresh token
+  refreshToken      String
+  /// expires at
+  expiresAt         DateTime    @db.Timestamptz(6)
+  /// data
+  data              Json?       @db.JsonB
+  /// scope
+  scope             String // Space-separated OAuth scopes (e.g., "api refresh_token web")
+  /// provider (e.g., "salesforce", "hubspot")
+  provider          String
+  /// provider account id
+  providerAccountId String
+  /// integration
+  integration       Integration @relation(fields: [integrationId], references: [id])
+  /// integration id
+  integrationId     String      @unique // One integration can only have one OAuth configuration
+
+  @@index([integrationId])
+}
+
+model IntegrationObjectMapping {
+  id                    String      @id @default(cuid())
+  /// Create timestamp
+  createdAt             DateTime    @default(now()) @db.Timestamptz()
+  /// Update timestamp
+  updatedAt             DateTime    @default(now()) @updatedAt @db.Timestamptz()
+  /// source object type (e.g., "account", "contact", "lead")
+  sourceObjectType      String
+  /// destination object type (e.g., "user", "company")
+  destinationObjectType String
+  /// settings
+  settings              Json?       @db.JsonB
+  /// enabled
+  enabled               Boolean     @default(false)
+  /// is syncing
+  isSyncing             Boolean     @default(false)
+  /// last synced at
+  lastSyncedAt          DateTime?   @db.Timestamptz()
+  /// integration
+  integration           Integration @relation(fields: [integrationId], references: [id])
+  /// integration id
+  integrationId         String
+
+  @@unique([integrationId, sourceObjectType, destinationObjectType])
+}
+
+model IntegrationLog {
+  /// Primary key
+  id            String      @id @default(cuid())
+  /// Create timestamp
+  createdAt     DateTime    @default(now()) @db.Timestamptz()
+  /// Update timestamp
+  updatedAt     DateTime    @updatedAt @db.Timestamptz()
+  /// integration
+  integration   Integration @relation(fields: [integrationId], references: [id])
+  /// integration id
+  integrationId String
+  /// status of integration log
+  status        String
+  /// data of integration log
+  data          Json?       @db.JsonB
+
+  @@index([integrationId, status])
 }

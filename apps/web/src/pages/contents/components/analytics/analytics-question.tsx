@@ -1,14 +1,23 @@
 import { useAnalyticsContext } from '@/contexts/analytics-context';
-import { Card, CardContent, CardHeader, CardTitle } from '@usertour-ui/card';
-import { ContentEditorElementType } from '@usertour-ui/shared-editor';
-import { useQueryContentQuestionAnalyticsQuery } from '@usertour-ui/shared-hooks';
+import { Card, CardContent, CardHeader, CardTitle } from '@usertour-packages/card';
+import { ContentEditorElementType } from '@usertour-packages/shared-editor';
+import { useQueryContentQuestionAnalyticsQuery } from '@usertour-packages/shared-hooks';
 import { format } from 'date-fns';
 
-import { Table, TableBody, TableCell, TableHead, TableHeader, TableRow } from '@usertour-ui/table';
-import { AnswerCount, ContentQuestionAnalytics } from '@usertour-ui/types';
+import {
+  Table,
+  TableBody,
+  TableCell,
+  TableHead,
+  TableHeader,
+  TableRow,
+} from '@usertour-packages/table';
+import { AnswerCount, ContentQuestionAnalytics } from '@usertour/types';
 import { AnalyticsNPS } from './analytics-nps';
 import { useContentDetailContext } from '@/contexts/content-detail-context';
 import { AnalyticsScale } from './analytics-scale';
+import { useAppContext } from '@/contexts/app-context';
+import { AnalyticsQuestionSkeleton } from './analytics-skeleton';
 
 interface AnalyticsMultipleChoiceProps {
   questionAnalytics: ContentQuestionAnalytics;
@@ -89,15 +98,20 @@ AnalyticsMultipleChoice.displayName = 'AnalyticsMultipleChoice';
 
 export const AnalyticsQuestion = (props: { contentId: string }) => {
   const { contentId } = props;
-  const { dateRange, timezone, analyticsData } = useAnalyticsContext();
+  const { dateRange, timezone, analyticsData, loading } = useAnalyticsContext();
   const { content, refetch } = useContentDetailContext();
-  const { questionAnalytics, refetch: refetchQuestionAnalytics } =
-    useQueryContentQuestionAnalyticsQuery(
-      contentId,
-      dateRange?.from?.toISOString() ?? '',
-      dateRange?.to?.toISOString() ?? '',
-      timezone,
-    );
+  const { environment } = useAppContext();
+  const {
+    questionAnalytics,
+    refetch: refetchQuestionAnalytics,
+    loading: questionLoading,
+  } = useQueryContentQuestionAnalyticsQuery(
+    environment?.id ?? '',
+    contentId,
+    dateRange?.from?.toISOString() ?? '',
+    dateRange?.to?.toISOString() ?? '',
+    timezone,
+  );
 
   const totalViews = analyticsData?.totalViews ?? 0;
 
@@ -121,6 +135,10 @@ export const AnalyticsQuestion = (props: { contentId: string }) => {
       await refetchQuestionAnalytics();
     }
   };
+
+  if (loading || questionLoading) {
+    return <AnalyticsQuestionSkeleton />;
+  }
 
   if (!content) {
     return null;

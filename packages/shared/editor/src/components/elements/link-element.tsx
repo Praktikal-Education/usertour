@@ -1,9 +1,14 @@
 import * as Popover from '@radix-ui/react-popover';
-import { Button } from '@usertour-ui/button';
-import { EDITOR_RICH_ACTION_CONTENT } from '@usertour-ui/constants';
-import { DeleteIcon } from '@usertour-ui/icons';
-import { Tabs, TabsList, TabsTrigger } from '@usertour-ui/tabs';
-import { Tooltip, TooltipContent, TooltipProvider, TooltipTrigger } from '@usertour-ui/tooltip';
+import { Button } from '@usertour-packages/button';
+import { EDITOR_RICH_ACTION_CONTENT } from '@usertour-packages/constants';
+import { DeleteIcon } from '@usertour-packages/icons';
+import { Tabs, TabsList, TabsTrigger } from '@usertour-packages/tabs';
+import {
+  Tooltip,
+  TooltipContent,
+  TooltipProvider,
+  TooltipTrigger,
+} from '@usertour-packages/tooltip';
 import { MouseEvent, useCallback, useState } from 'react';
 import { Descendant, Transforms } from 'slate';
 import { ReactEditor, RenderElementProps, useSlateStatic } from 'slate-react';
@@ -68,7 +73,7 @@ export const LinkElement = (props: RenderElementProps) => {
         <span
           {...props.attributes}
           className="underline"
-          style={{ color: 'var(--usertour-link-color)' }}
+          style={{ color: 'hsl(var(--usertour-link-color))' }}
         >
           {props.children}
         </span>

@@ -1,22 +1,23 @@
 'use client';
 
 import { ChevronLeftIcon } from '@radix-ui/react-icons';
-import { Button } from '@usertour-ui/button';
-import { Card, CardContent, CardFooter, CardHeader, CardTitle } from '@usertour-ui/card';
-import { EXTENSION_CONTENT_SIDEBAR, MESSAGE_CRX_OPEN_NEW_TARGET } from '@usertour-ui/constants';
-import { OutlineInput } from '@usertour-ui/input';
-import { ScrollArea } from '@usertour-ui/scroll-area';
-import { Separator } from '@usertour-ui/separator';
+import { Button } from '@usertour-packages/button';
+import { Card, CardContent, CardFooter, CardHeader, CardTitle } from '@usertour-packages/card';
+import {
+  EXTENSION_CONTENT_SIDEBAR,
+  MESSAGE_CRX_OPEN_NEW_TARGET,
+} from '@usertour-packages/constants';
+import { OutlineInput } from '@usertour-packages/input';
+import { ScrollArea } from '@usertour-packages/scroll-area';
+import { Separator } from '@usertour-packages/separator';
 import {
   Align,
   ContentAlignmentData,
   ContentModalPlacementData,
-  ContentVersion,
   Side,
-  Step,
   Theme,
-} from '@usertour-ui/types';
-import { cn } from '@usertour-ui/ui-utils';
+} from '@usertour/types';
+import { cn } from '@usertour/helpers';
 import { ChangeEvent, Ref, useCallback, useEffect, useRef, useState } from 'react';
 import { BuilderMode, useBuilderContext } from '../../contexts';
 import { ContentAlignment } from '../../components/content-alignment';
@@ -31,20 +32,18 @@ import {
   useAttributeListContext,
   useContentListContext,
   useThemeListContext,
-} from '@usertour-ui/contexts';
+} from '@usertour-packages/contexts';
 import { postProxyMessageToWindow } from '../../utils/post-message';
-import {
-  ContentEditorRoot,
-  createValue1,
-  hasMissingRequiredData,
-} from '@usertour-ui/shared-editor';
-import { defaultStep, getErrorMessage } from '@usertour-ui/shared-utils';
-import { PlusIcon, SpinnerIcon } from '@usertour-ui/icons';
-import { useMutation } from '@apollo/client';
-import { addContentStep, updateContentStep } from '@usertour-ui/gql';
-import { useToast } from '@usertour-ui/use-toast';
+import { ContentEditorRoot, hasMissingRequiredData } from '@usertour-packages/shared-editor';
+import { getErrorMessage } from '@usertour/helpers';
+import { PlusIcon, SpinnerIcon } from '@usertour-packages/icons';
+import { useToast } from '@usertour-packages/use-toast';
 import { ContentType } from '../../components/content-type';
 import { FlowPlacement } from './components/flow-placement';
+import {
+  useAddContentStepMutation,
+  useUpdateContentStepMutation,
+} from '@usertour-packages/shared-hooks';
 
 const FlowBuilderDetailHeader = () => {
   const { setCurrentMode, currentStep, currentContent, updateCurrentStep } = useBuilderContext();
@@ -209,6 +208,7 @@ const FlowBuilderDetailBody = () => {
                     enabledBackdrop: currentStep.setting.enabledBackdrop,
                     skippable: currentStep.setting.skippable,
                     enabledBlockTarget: currentStep.setting.enabledBlockTarget,
+                    explicitCompletionStep: currentStep.setting.explicitCompletionStep,
                   }}
                   onChange={handleSettingsChange}
                   type={currentStep.type}
@@ -234,8 +234,8 @@ const FlowBuilderDetailFooter = () => {
   } = useBuilderContext();
   const [backupStepData] = useState(currentStep);
   const [isLoading, setIsLoading] = useState<boolean>(false);
-  const [addContentStepMutation] = useMutation(addContentStep);
-  const [updateContentStepMutation] = useMutation(updateContentStep);
+  const { invoke: addContentStep } = useAddContentStepMutation();
+  const { invoke: updateContentStep } = useUpdateContentStepMutation();
   const { toast } = useToast();
 
   const handleSave = useCallback(async () => {
@@ -270,10 +270,14 @@ const FlowBuilderDetailFooter = () => {
         setting: { ...currentStep.setting, height },
       };
       if (!step.id) {
-        const ret = await addContentStepMutation({
-          variables: { data: { ...step, versionId: currentVersion?.id } },
-        });
-        if (ret.data.addContentStep && currentVersion?.contentId) {
+        if (!currentVersion?.id) {
+          return toast({
+            variant: 'destructive',
+            title: 'Failed to create step!',
+          });
+        }
+        const createdStep = await addContentStep({ ...step, versionId: currentVersion.id });
+        if (createdStep && currentVersion?.contentId) {
           await fetchContentAndVersion(currentVersion?.contentId, currentVersion?.id);
         } else {
           return toast({
@@ -283,10 +287,8 @@ const FlowBuilderDetailFooter = () => {
         }
       } else {
         const { id, createdAt, updatedAt, cvid, ...updates } = step;
-        const ret = await updateContentStepMutation({
-          variables: { stepId: step.id, data: updates },
-        });
-        if (ret.data.updateContentStep && currentVersion?.contentId) {
+        const updatedStep = await updateContentStep(step.id, updates);
+        if (updatedStep && currentVersion?.contentId) {
           await fetchContentAndVersion(currentVersion?.contentId, currentVersion?.id);
         } else {
           return toast({
@@ -323,26 +325,16 @@ const FlowBuilderDetailEmbed = () => {
     currentVersion,
     contentRef,
     currentIndex,
-    createStep,
     selectorOutput,
     currentContent,
     projectId,
+    createNewStep,
   } = useBuilderContext();
   const { themeList } = useThemeListContext();
   const { contents } = useContentListContext();
   const { attributeList } = useAttributeListContext();
   const [theme, setTheme] = useState<Theme>();
   const triggerRef = useRef<SVGSVGElement>(null);
-  const createNewStep = (currentVersion: ContentVersion, sequence: number) => {
-    const step: Step = {
-      ...defaultStep,
-      type: 'tooltip',
-      name: 'Untitled',
-      data: createValue1,
-      sequence,
-    };
-    return createStep(currentVersion, step);
-  };
 
   useEffect(() => {
     if (!themeList) {

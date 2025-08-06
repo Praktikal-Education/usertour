@@ -3,7 +3,7 @@ import {
   ContentPriority,
   RulesCondition,
   autoStartRulesSetting,
-} from '@usertour-ui/types';
+} from '@usertour/types';
 import autoBind from '../utils/auto-bind';
 import { activedRulesConditions, isActive } from '../utils/conditions';
 import { Evented } from './evented';
@@ -91,7 +91,7 @@ export class Config extends Evented {
       return false;
     }
     if (!hideRules || hideRules.length === 0) {
-      return true;
+      return false;
     }
     return isActive(hideRules);
   }

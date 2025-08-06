@@ -24,6 +24,7 @@ export type StepSettings = {
   skippable: boolean;
   enabledBackdrop: boolean;
   enabledBlockTarget: boolean;
+  explicitCompletionStep?: boolean;
   align: string;
   side: string;
   alignType: string;
@@ -50,6 +51,25 @@ export type Step = {
   data?: any;
 };
 
+export type ContentOnEnvironment = {
+  environment: {
+    id: string;
+    name: string;
+  };
+
+  environmentId: string;
+
+  contentId: string;
+
+  published: boolean;
+
+  publishedAt: Date;
+
+  publishedVersionId: string;
+
+  publishedVersion: ContentVersion;
+};
+
 export type Content = {
   id: string;
   name?: string;
@@ -61,6 +81,7 @@ export type Content = {
       scale: number;
     };
   };
+  publishedVersion?: ContentVersion;
   buildUrl?: string;
   published?: boolean;
   createdAt?: string;
@@ -71,6 +92,7 @@ export type Content = {
   publishedVersionId?: string;
   deleted?: boolean;
   steps?: Step[];
+  contentOnEnvironments?: ContentOnEnvironment[];
 };
 
 export enum ContentPriority {
@@ -239,3 +261,34 @@ export type ContentModalPlacementData = {
   positionOffsetX: number;
   positionOffsetY: number;
 };
+
+export enum ContentConditionLogic {
+  SEEN = 'seen',
+  UNSEEN = 'unseen',
+  COMPLETED = 'completed',
+  UNCOMPLETED = 'uncompleted',
+  ACTIVED = 'actived',
+  UNACTIVED = 'unactived',
+}
+
+export enum ElementConditionLogic {
+  PRESENT = 'present',
+  UNPRESENT = 'unpresent',
+  DISABLED = 'disabled',
+  UNDISABLED = 'undisabled',
+  CLICKED = 'clicked',
+  UNCLICKED = 'unclicked',
+}
+
+export enum StringConditionLogic {
+  IS = 'is',
+  NOT = 'not',
+  CONTAINS = 'contains',
+  NOT_CONTAIN = 'notContain',
+  STARTS_WITH = 'startsWith',
+  ENDS_WITH = 'endsWith',
+  MATCH = 'match',
+  UNMATCH = 'unmatch',
+  ANY = 'any',
+  EMPTY = 'empty',
+}
